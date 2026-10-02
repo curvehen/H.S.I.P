@@ -82,5 +82,39 @@ def main():
     # 5. Train final models on full dataset
     model_q10 = train_quantile_model(X, y, alpha=0.1)
     model_q50 = train_quantile_model(X, y, alpha=0.5)
-    model_q90 = train_quantile_model(X, y, alpha=0.9
+    model_q90 = train_quantile_model(X, y, alpha=0.9)
+    model_q10 = train_quantile_model(X, y, alpha=0.1)
+    model_q50 = train_quantile_model(X, y, alpha=0.5)
+    model_q90 = train_quantile_model(X, y, alpha=0.9)
+
+    # 6. Save models (LightGBM native format — small, git-friendly)
+    model_q10.booster_.save_model(str(MODEL_Q10_PATH))
+    model_q50.booster_.save_model(str(MODEL_Q50_PATH))
+    model_q90.booster_.save_model(str(MODEL_Q90_PATH))
+
+    # 7. Save feature column list — inference script MUST use same columns/order
+    feature_list_path = MODEL_Q10_PATH.parent / "feature_columns.json"
+    with open(feature_list_path, "w") as f:
+        json.dump(list(X.columns), f)
+
+    # 8. Save metrics + metadata for tracking model versions over time
+    metrics = {
+        "trained_at": datetime.datetime.utcnow().isoformat(),
+        "n_samples": int(len(X)),
+        "avg_purged_kfold_rmse_q50": avg_rmse,
+        "date_range": {
+            "start": str(labeled_df.index.min()),
+            "end": str(labeled_df.index.max()),
+        },
+        "n_features": len(X.columns),
+    }
+    with open(METRICS_PATH, "w") as f:
+        json.dump(metrics, f, indent=2)
+
+    print("Training complete. Models saved to:", MODEL_Q10_PATH.parent)
+    print(json.dumps(metrics, indent=2))
+
+
+if __name__ == "__main__":
+    main()
 
