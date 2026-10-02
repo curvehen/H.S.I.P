@@ -3,14 +3,17 @@ TRAINING SCRIPT — run manually in Google Colab only.
 GitHub Actions never calls this file; it only runs predict.py.
 
 Pipeline:
-1. Fetch HSI + cross-market data (multi-source fallback)
-2. Fetch per-stock data for HSI constituents (bottom-up)
-3. Feature engineering (candlesticks, technicals, CCASS, news)
+1. Check walk-forward trigger (calendar + drift) -- informational, does not block manual run
+2. Fetch HSI + cross-market + macro (Stock Connect, GARCH) + intraday data
+3. Feature engineering (candlesticks, technicals, CCASS, news, macro, intraday)
 4. Triple-barrier labeling
-5. Purged K-Fold LightGBM quantile training (HSI-level model)
-6. Meta-labeling model training
-7. Per-stock quantile models (bottom-up aggregation)
-8. Save all models + metrics.json
+5. Optuna hyperparameter search (Purged K-Fold objective)
+6. Expanding-window walk-forward validation report
+7. Train final Ensemble model (LightGBM + RandomForest + Ridge) on full dataset
+8. Train standalone quantile models (q10/q50/q90) for band estimation
+9. Train meta-labeling model
+10. Per-stock bottom-up models
+11. Save everything + metrics.json + mark_trained_today()
 """
 
 import json
@@ -18,7 +21,6 @@ import datetime
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
-from sklearn.model_selection import KFold
 
 from config import (MODEL_Q10_PATH, MODEL_Q50_PATH, MODEL_Q90_PATH,
                      FEATURE_LIST_PATH, METRICS_PATH, STOCK_MODEL_DIR,
@@ -31,34 +33,9 @@ from meta_labeling import build_meta_labels, train_meta_model
 from ccass_scraper import get_ccass_change
 from news_sentiment import get_daily_market_sentiment, get_stock_sentiment
 from stock_universe import get_universe
-
-
-def purged_kfold_indices(n_samples, n_splits=5, embargo=BARRIER_HOLDING_DAYS):
-    """Purged K-Fold: removes train samples near test-fold boundary to prevent leakage."""
-    kf = KFold(n_splits=n_splits, shuffle=False)
-    for train_idx, test_idx in kf.split(np.arange(n_samples)):
-        test_start, test_end = test_idx.min(), test_idx.max()
-        purge_mask = ~((train_idx >= test_start - embargo) & (train_idx <= test_end + embargo))
-        yield train_idx[purge_mask], test_idx
-
-
-def train_quantile_model(X, y, alpha):
-    model = lgb.LGBMRegressor(
-        objective="quantile", alpha=alpha, n_estimators=500,
-        learning_rate=0.03, max_depth=5, num_leaves=31,
-        subsample=0.8, colsample_bytree=0.8, verbosity=-1,
-    )
-    model.fit(X, y)
-    return model
-
-
-def build_labeled_dataset(ticker, stooq_ticker=None, us_futures=None, vix=None,
-                           ccass_change=0.0, market_sentiment=0.0, stock_kw=None):
-    raw = fetch_with_fallback(ticker, stooq_ticker)
-    stock_sentiment = get_stock_sentiment(stock_kw) if stock_kw else 0.0
-    feat_df = build_features(raw, us_futures, vix, ccass_change, market_sentiment, stock_sentiment)
-    labeled_df = triple_barrier_labels(feat_df)
-    return labeled_df
+from ensemble_model import HSIEnsembleModel
+from optuna_tuning import run_optuna_search, load_best_params
+from walk_forward import should_retrain, mark_trained_today, expanding_window_validation
 
 
 def get_numeric_features(df):
@@ -67,8 +44,22 @@ def get_numeric_features(df):
     return df[cols].select_dtypes(include=[np.number])
 
 
+def build_labeled_dataset(ticker, stooq_ticker=None, us_futures=None, vix=None,
+                           ccass_change=0.0, market_sentiment=0.0, stock_kw=None):
+    raw = fetch_with_fallback(ticker, stooq_ticker)
+    stock_sentiment = get_stock_sentiment(stock_kw) if stock_kw else 0.0
+    feat_df = build_features(raw, us_futures, vix, ccass_change, market_sentiment,
+                              stock_sentiment, ticker=ticker)
+    labeled_df = triple_barrier_labels(feat_df)
+    return labeled_df
+
+
 def train_hsi_model():
-    print("=== Training HSI-level model ===")
+    print("=== [1/3] Checking walk-forward retrain trigger (informational) ===")
+    retrain_status = should_retrain()
+    print(json.dumps(retrain_status, indent=2))
+
+    print("=== [2/3] Fetching data + building features ===")
     us_futures = fetch_with_fallback(US_FUTURES_TICKER)
     vix = fetch_with_fallback(VIX_TICKER)
     market_sentiment = get_daily_market_sentiment()
@@ -82,17 +73,40 @@ def train_hsi_model():
     X = get_numeric_features(labeled_df)
     y = labeled_df["barrier_return"]
 
-    rmses = []
-    for train_idx, test_idx in purged_kfold_indices(len(X)):
-        m = train_quantile_model(X.iloc[train_idx], y.iloc[train_idx], alpha=0.5)
-        preds = m.predict(X.iloc[test_idx])
-        rmses.append(float(np.sqrt(np.mean((preds - y.iloc[test_idx]) ** 2))))
-    avg_rmse = float(np.mean(rmses))
-    print(f"HSI Purged K-Fold avg RMSE (q50): {avg_rmse:.5f}")
+    print(f"Dataset ready: {len(X)} samples, {len(X.columns)} features")
 
-    model_q10 = train_quantile_model(X, y, alpha=0.1)
-    model_q50 = train_quantile_model(X, y, alpha=0.5)
-    model_q90 = train_quantile_model(X, y, alpha=0.9)
+    print("=== [3/3] Optuna hyperparameter search ===")
+    best_params = run_optuna_search(X, y)
+
+    # --- Walk-forward validation using tuned params ---
+    def model_fn(X_tr, y_tr):
+        m = lgb.LGBMRegressor(objective="quantile", alpha=0.5, verbosity=-1, **best_params)
+        m.fit(X_tr, y_tr)
+        return m
+
+    wf_report = expanding_window_validation(X, y, model_fn)
+    print("Walk-forward validation report:")
+    print(json.dumps(wf_report, indent=2))
+
+    # --- Train final Ensemble model on full data (last 20% held out for weighting) ---
+    split_idx = int(len(X) * 0.8)
+    X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
+    y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
+
+    ensemble = HSIEnsembleModel(lgb_params=best_params)
+    ensemble_report = ensemble.fit(X_train, y_train, X_val, y_val)
+    print("Ensemble weights:", ensemble_report["weights"])
+    ensemble.save(prefix="hsi")
+
+    # --- Train standalone quantile models for band estimation (q10/q50/q90) ---
+    def train_quantile(alpha):
+        m = lgb.LGBMRegressor(objective="quantile", alpha=alpha, verbosity=-1, **best_params)
+        m.fit(X, y)
+        return m
+
+    model_q10 = train_quantile(0.1)
+    model_q50 = train_quantile(0.5)
+    model_q90 = train_quantile(0.9)
 
     model_q10.booster_.save_model(str(MODEL_Q10_PATH))
     model_q50.booster_.save_model(str(MODEL_Q50_PATH))
@@ -101,16 +115,19 @@ def train_hsi_model():
     with open(FEATURE_LIST_PATH, "w") as f:
         json.dump(list(X.columns), f)
 
-    # Meta-labeling
+    # --- Meta-labeling ---
     primary_pred = model_q50.predict(X)
     meta_labels = build_meta_labels(pd.Series(primary_pred, index=X.index), y)
     train_meta_model(X, meta_labels)
 
     return {
-        "avg_purged_kfold_rmse_q50": avg_rmse,
+        "best_hyperparams": best_params,
+        "ensemble_report": ensemble_report,
+        "walk_forward_report": wf_report,
         "n_samples": int(len(X)),
         "n_features": len(X.columns),
         "date_range": {"start": str(labeled_df.index.min()), "end": str(labeled_df.index.max())},
+        "retrain_trigger_status": retrain_status,
     }
 
 
@@ -133,9 +150,13 @@ def train_stock_models():
             X = get_numeric_features(labeled_df)
             y = labeled_df["barrier_return"]
 
-            model_q50 = train_quantile_model(X, y, alpha=0.5)
-            model_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_q50.txt"
-            model_q50.booster_.save_model(str(model_path))
+            params = load_best_params()
+
+                        for alpha, suffix in [(0.1, "q10"), (0.5, "q50"), (0.9, "q90")]:
+                model = lgb.LGBMRegressor(objective="quantile", alpha=alpha, verbosity=-1, **params)
+                model.fit(X, y)
+                model_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_{suffix}.txt"
+                model.booster_.save_model(str(model_path))
 
             feat_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_features.json"
             with open(feat_path, "w") as f:
@@ -160,6 +181,8 @@ def main():
     }
     with open(METRICS_PATH, "w") as f:
         json.dump(metrics, f, indent=2, default=str)
+
+    mark_trained_today()
 
     print("=== Training complete ===")
     print(json.dumps(metrics, indent=2, default=str))
