@@ -1,12 +1,11 @@
 # Runs on every HK trading day: fetch data, predict, compare vs actual,
-# check for drift, commit results. NO training happens here.
+# check drift, commit results. NO training happens here (Colab only).
 name: Daily HSI Predict & Monitor
 
 on:
   schedule:
-    # 01:00 UTC = 09:00 HKT, before HK market open
-    - cron: '0 1 * * 1-5'
-  workflow_dispatch:   # allows manual trigger for testing
+    - cron: '0 1 * * 1-5'   # 01:00 UTC = 09:00 HKT
+  workflow_dispatch:
 
 jobs:
   predict:
@@ -49,7 +48,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
-          git add logs/ predictions/ *.flag 2>/dev/null || true
+          git add logs/ predictions/ data/ *.flag 2>/dev/null || true
           git commit -m "auto: predict + evaluate $(date +%F)" || echo "No changes to commit"
           git push
-
