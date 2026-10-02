@@ -1,8 +1,4 @@
-"""
-Triple-barrier labeling (López de Prado style):
-For each day, define profit-take / stop-loss / time barriers based on ATR.
-Label = which barrier is hit first. Used as training target for entry/exit logic.
-"""
+"""Triple-barrier labeling (López de Prado style)."""
 
 import numpy as np
 import pandas as pd
@@ -39,4 +35,3 @@ def triple_barrier_labels(df: pd.DataFrame) -> pd.DataFrame:
     df["barrier_label"] = labels
     df["barrier_return"] = barrier_return
     return df.dropna(subset=["barrier_label"])
-
