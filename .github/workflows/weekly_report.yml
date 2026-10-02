@@ -1,0 +1,39 @@
+name: Weekly Performance Report
+
+on:
+  schedule:
+    - cron: '0 2 * * 6'   # 每週六 UTC 02:00 (香港時間星期六 10:00)
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate performance report
+        working-directory: src
+        run: python performance_report.py
+
+      - name: Commit report + chart
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add predictions/
+          git commit -m "report: weekly performance review $(date +%F)" || echo "No changes to commit"
+          git push
