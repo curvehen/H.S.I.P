@@ -1,10 +1,8 @@
-# Runs on every HK trading day: fetch data, predict, compare vs actual,
-# check drift, commit results. NO training happens here (Colab only).
 name: Daily HSI Predict & Monitor
 
 on:
   schedule:
-    - cron: '0 1 * * 1-5'   # 01:00 UTC = 09:00 HKT
+    - cron: '0 1 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -43,6 +41,18 @@ jobs:
       - name: Run drift evaluation
         working-directory: src
         run: python evaluate_drift.py
+
+      - name: Check walk-forward calendar trigger
+        working-directory: src
+        run: |
+          python -c "
+          from walk_forward import should_retrain
+          import json
+          status = should_retrain()
+          print(json.dumps(status, indent=2))
+          if status['should_retrain']:
+              print('>>> NOTICE: Retrain recommended (calendar or drift trigger). Run training in Colab.')
+          "
 
       - name: Commit results
         run: |
