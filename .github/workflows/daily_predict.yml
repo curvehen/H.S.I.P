@@ -46,6 +46,17 @@ jobs:
         working-directory: src
         run: python evaluate_drift.py
 
+      - name: Check walk-forward calendar trigger
+        working-directory: src
+        run: |
+          python -c "
+          from walk_forward import should_retrain
+          import json
+          status = should_retrain()
+          print(json.dumps(status, indent=2))
+          if status['should_retrain']:
+              print('>>> NOTICE: Retrain recommended. Run training in Colab.')
+          "
       - name: Commit results
         run: |
           git config user.name "github-actions[bot]"
