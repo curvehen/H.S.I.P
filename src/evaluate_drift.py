@@ -3,7 +3,7 @@ Runs after predict.py on each trading day:
 1. Fill in actual_close once known.
 2. Compute rolling directional accuracy.
 3. Page-Hinkley drift detection on prediction errors.
-4. Flag RETRAIN_NEEDED if degraded — retraining itself stays manual (Colab).
+4. Flag RETRAIN_NEEDED if degraded — retraining stays manual (Colab).
 """
 
 import numpy as np
@@ -25,7 +25,7 @@ def update_actuals(log: pd.DataFrame) -> pd.DataFrame:
         if pd.isna(row["actual_close"]) and row["predict_date"] in raw.index:
             actual = float(raw.loc[row["predict_date"], "Close"])
             log.at[idx, "actual_close"] = actual
-            pred_direction = np.sign(row["pred_return_q50_blended"])
+            pred_direction = np.sign(row["pred_close_return_blended"])
             actual_direction = np.sign(actual - row["last_close"])
             log.at[idx, "directional_hit"] = int(pred_direction == actual_direction)
     return log
@@ -36,7 +36,7 @@ def check_drift(log: pd.DataFrame) -> dict:
     if len(completed) < ROLLING_WINDOW:
         return {"status": "INSUFFICIENT_DATA", "needs_retrain": False}
 
-    completed["error"] = (completed["actual_close"] - completed["pred_price_mid"]) / completed["last_close"]
+    completed["error"] = (completed["actual_close"] - completed["pred_close"]) / completed["last_close"]
 
     ph = PageHinkley(delta=PAGE_HINKLEY_DELTA, threshold=PAGE_HINKLEY_THRESHOLD)
     drift_detected = False
@@ -70,20 +70,5 @@ if __name__ == "__main__":
         RETRAIN_FLAG_PATH.write_text(f"Retrain flagged at {pd.Timestamp.utcnow()}. Details: {report}")
         print(">>> RETRAIN_NEEDED.flag created. Retrain in Colab.")
     elif RETRAIN_FLAG_PATH.exists():
-        RETRAIN
-
-  if __name__ == "__main__":
-    log = pd.read_csv(PRED_LOG_PATH)
-    log = update_actuals(log)
-    log.to_csv(PRED_LOG_PATH, index=False)
-
-    report = check_drift(log)
-    print(report)
-
-    if report.get("needs_retrain"):
-        RETRAIN_FLAG_PATH.write_text(f"Retrain flagged at {pd.Timestamp.utcnow()}. Details: {report}")
-        print(">>> RETRAIN_NEEDED.flag created. Retrain in Colab.")
-    elif RETRAIN_FLAG_PATH.exists():
         RETRAIN_FLAG_PATH.unlink()
         print(">>> Performance recovered. RETRAIN_NEEDED.flag removed.")
-
