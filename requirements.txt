@@ -1,9 +1,10 @@
+# Cell 4a: 重寫requirements.txt，移除TA-Lib（已經由setup_talib()獨立處理）
+%%writefile requirements.txt
 yfinance==0.2.40
 pandas==2.2.2
 numpy==1.26.4
 scikit-learn==1.5.0
 lightgbm==4.3.0
-TA-Lib==0.4.32
 matplotlib==3.9.0
 river==0.21.0
 joblib==1.4.2
