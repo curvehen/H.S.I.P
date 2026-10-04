@@ -1,31 +1,26 @@
 """
-Walk-forward retraining controller.
-Determines whether a retrain should be triggered based on:
-1. Calendar time since last training (forces periodic refresh regardless of drift)
-2. Drift flag from evaluate_drift.py (performance-triggered)
-
-Also provides expanding-window walk-forward validation used during training
-to simulate realistic sequential retraining performance (not just a single
-train/test split).
+Walk-forward retraining controller + expanding-window validation.
+Combines calendar-based trigger (forces periodic refresh) with
+drift-based trigger (from evaluate_drift.py) to decide when a retrain
+should happen. Also provides expanding-window validation during training
+to simulate realistic sequential retraining performance.
 """
 
 import datetime
 import numpy as np
 import pandas as pd
 
-from config import LAST_TRAIN_DATE_PATH, WALK_FORWARD_MIN_DAYS_SINCE_RETRAIN, \
-    WALK_FORWARD_N_WINDOWS, RETRAIN_FLAG_PATH
+from config import LAST_TRAIN_DATE_PATH, RETRAIN_FLAG_PATH, WALK_FORWARD_MIN_DAYS_SINCE_RETRAIN
 
 
 def days_since_last_train() -> int:
     if not LAST_TRAIN_DATE_PATH.exists():
-        return 999999  # never trained -> force train
+        return 999999
     last_date = datetime.date.fromisoformat(LAST_TRAIN_DATE_PATH.read_text().strip())
     return (datetime.date.today() - last_date).days
 
 
 def should_retrain() -> dict:
-    """Combines calendar-based and drift-based triggers."""
     days_elapsed = days_since_last_train()
     calendar_trigger = days_elapsed >= WALK_FORWARD_MIN_DAYS_SINCE_RETRAIN
     drift_trigger = RETRAIN_FLAG_PATH.exists()
@@ -42,8 +37,7 @@ def mark_trained_today():
     LAST_TRAIN_DATE_PATH.write_text(datetime.date.today().isoformat())
 
 
-def expanding_window_validation(X: pd.DataFrame, y: pd.Series, model_fn,
-                                 n_windows: int = WALK_FORWARD_N_WINDOWS) -> dict:
+def expanding_window_validation(X: pd.DataFrame, y: pd.Series, model_fn, n_windows: int = 5) -> dict:
     """
     Simulates realistic walk-forward deployment: train on an expanding window,
     test on the immediately following block, roll forward. More representative
