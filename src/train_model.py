@@ -2,15 +2,19 @@
 TRAINING SCRIPT — run manually in Google Colab only.
 GitHub Actions never calls this file; it only runs predict.py.
 
-Pipeline:
-1. Fetch HSI + cross-market data (multi-source fallback)
-2. Feature engineering (candlesticks, technicals, CCASS, news, macro)
-3. Next-day labeling (close/high/low returns)
-4. Purged K-Fold validated Ensemble model (primary point estimate for close)
-5. Quantile models for close (q10/q50/q90) + direct high/low regressors
-6. Meta-confidence model
-7. Per-stock bottom-up models (close q50 only, for aggregation)
-8. Save everything + metrics.json
+Full pipeline:
+1. Check walk-forward retrain trigger (calendar + drift) — informational only
+2. Fetch HSI + cross-market + macro (Stock Connect, GARCH, ADR) data
+3. Feature engineering (candlesticks, technicals, CCASS, news, macro)
+4. Next-day labeling (close/high/low returns)
+5. Optuna hyperparameter search (Purged K-Fold objective)
+6. Expanding-window walk-forward validation report (using tuned params)
+7. Train final Ensemble model (LightGBM + RandomForest + Ridge) for close
+8. Train standalone quantile models (q10/q50/q90) for close band
+9. Train direct High / Low regressors
+10. Train Meta-Labeling (confidence) model
+11. Train per-stock bottom-up models (close q50)
+12. Save everything + metrics.json + mark_trained_today()
 """
 
 import json
@@ -18,30 +22,29 @@ import datetime
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
-from sklearn.model_selection import KFold
 
 from config import (MODEL_CLOSE_Q10_PATH, MODEL_CLOSE_Q50_PATH, MODEL_CLOSE_Q90_PATH,
                      MODEL_HIGH_PATH, MODEL_LOW_PATH, FEATURE_LIST_PATH, METRICS_PATH,
                      STOCK_MODEL_DIR, HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER,
-                     PURGE_EMBARGO_DAYS, LGB_PARAMS, LAST_TRAIN_DATE_PATH)
+                     LGB_PARAMS)
 from data_sources import fetch_with_fallback
 from features import build_features, get_numeric_feature_columns
 from labeling import build_nextday_labels, LABEL_COLUMNS
 from confidence import build_meta_labels, train_meta_model
 from news_sentiment import get_daily_market_sentiment, get_stock_sentiment
+from ccass_scraper import get_ccass_change
 from stock_universe import get_universe
 from ensemble_model import HSIEnsembleModel
+from optuna_tuning import run_optuna_search
+from walk_forward import should_retrain, mark_trained_today, expanding_window_validation
 
 
-def purged_kfold_indices(n_samples, n_splits=5, embargo=PURGE_EMBARGO_DAYS):
-    kf = KFold(n_splits=n_splits, shuffle=False)
-    for train_idx, test_idx in kf.split(np.arange(n_samples)):
-        test_start, test_end = test_idx.min(), test_idx.max()
-        purge_mask = ~((train_idx >= test_start - embargo) & (train_idx <= test_end + embargo))
-        yield train_idx[purge_mask], test_idx
-
+# ---------------------------------------------------------------------------
+# Dataset construction
+# ---------------------------------------------------------------------------
 
 def build_labeled_hsi_dataset():
+    """Fetches HSI + cross-market data, builds features, applies next-day labeling."""
     us_futures = fetch_with_fallback(US_FUTURES_TICKER)
     vix = fetch_with_fallback(VIX_TICKER)
     market_sentiment = get_daily_market_sentiment()
@@ -49,13 +52,21 @@ def build_labeled_hsi_dataset():
     raw = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
     feat_df = build_features(raw, us_futures=us_futures, vix=vix,
                               ccass_change=0.0, market_sentiment=market_sentiment,
-                              stock_sentiment=0.0, ticker=HSI_TICKER)
+                              stock_sentiment=0.0, ticker=HSI_TICKER, include_macro=True)
     labeled_df = build_nextday_labels(feat_df)
     return labeled_df
 
 
+# ---------------------------------------------------------------------------
+# HSI-level model training
+# ---------------------------------------------------------------------------
+
 def train_hsi_models():
-    print("=== Building HSI dataset ===")
+    print("=== [Step 1] Checking walk-forward retrain trigger (informational) ===")
+    retrain_status = should_retrain()
+    print(json.dumps(retrain_status, indent=2))
+
+    print("=== [Step 2] Building HSI dataset (features + next-day labels) ===")
     labeled_df = build_labeled_hsi_dataset()
 
     feature_cols = get_numeric_feature_columns(labeled_df, exclude=LABEL_COLUMNS)
@@ -66,33 +77,33 @@ def train_hsi_models():
 
     print(f"Dataset ready: {len(X)} samples, {len(feature_cols)} features")
 
-    # ---- Purged K-Fold validation (close target) ----
-    print("=== Purged K-Fold validation (close target) ===")
-    rmses = []
-    for train_idx, test_idx in purged_kfold_indices(len(X)):
-        m = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
-        m.fit(X.iloc[train_idx], y_close.iloc[train_idx])
-        preds = m.predict(X.iloc[test_idx])
-        rmses.append(float(np.sqrt(np.mean((preds - y_close.iloc[test_idx]) ** 2))))
-    avg_rmse = float(np.mean(rmses))
-    print(f"Avg Purged K-Fold RMSE (next_close_return): {avg_rmse:.5f}")
+    print("=== [Step 3] Optuna hyperparameter search (close target) ===")
+    best_params = run_optuna_search(X, y_close)
 
-    # ---- Ensemble model for close (primary point estimate) ----
-    print("=== Training Ensemble model (close) ===")
+    print("=== [Step 4] Expanding-window walk-forward validation (tuned params) ===")
+    def model_fn(X_tr, y_tr):
+        m = lgb.LGBMRegressor(objective="regression", **best_params)
+        m.fit(X_tr, y_tr)
+        return m
+
+    wf_report = expanding_window_validation(X, y_close, model_fn, n_windows=5)
+    print("Walk-forward validation report:")
+    print(json.dumps(wf_report, indent=2))
+
+    print("=== [Step 5] Training Ensemble model (close) ===")
     split_idx = int(len(X) * 0.85)
     X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
     y_train, y_val = y_close.iloc[:split_idx], y_close.iloc[split_idx:]
 
-    ensemble = HSIEnsembleModel(lgb_params=LGB_PARAMS)
+    ensemble = HSIEnsembleModel(lgb_params=best_params)
     ensemble_report = ensemble.fit(X_train, y_train, X_val, y_val)
     print("Ensemble weights:", ensemble_report["weights"])
     ensemble.save(prefix="hsi")
 
-    # ---- Quantile models for close band (q10/q50/q90) ----
-    print("=== Training quantile models (close q10/q50/q90) ===")
+    print("=== [Step 6] Training quantile models (close q10/q50/q90) ===")
     def train_quantile(y, alpha):
-        m = lgb.LGBMRegressor(objective="quantile", alpha=alpha,
-                               **{k: v for k, v in LGB_PARAMS.items()})
+        params = {k: v for k, v in best_params.items()}
+        m = lgb.LGBMRegressor(objective="quantile", alpha=alpha, **params)
         m.fit(X, y)
         return m
 
@@ -104,40 +115,40 @@ def train_hsi_models():
     model_close_q50.booster_.save_model(str(MODEL_CLOSE_Q50_PATH))
     model_close_q90.booster_.save_model(str(MODEL_CLOSE_Q90_PATH))
 
-    # ---- Direct High / Low regressors ----
-    print("=== Training High/Low regressors ===")
-    model_high = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
+    print("=== [Step 7] Training direct High / Low regressors ===")
+    model_high = lgb.LGBMRegressor(objective="regression", **best_params)
     model_high.fit(X, y_high)
     model_high.booster_.save_model(str(MODEL_HIGH_PATH))
 
-    model_low = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
+    model_low = lgb.LGBMRegressor(objective="regression", **best_params)
     model_low.fit(X, y_low)
     model_low.booster_.save_model(str(MODEL_LOW_PATH))
 
-    # ---- Save feature column list (critical: predict.py must use same order) ----
     with open(FEATURE_LIST_PATH, "w") as f:
         json.dump(feature_cols, f)
 
-    # ---- Meta-confidence model ----
-    print("=== Training meta-confidence model ===")
+    print("=== [Step 8] Training Meta-Labeling (confidence) model ===")
     primary_pred = model_close_q50.predict(X)
     meta_labels = build_meta_labels(pd.Series(primary_pred, index=X.index), y_close)
     train_meta_model(X, meta_labels)
 
     return {
-        "avg_purged_kfold_rmse_close": avg_rmse,
+        "best_hyperparams": best_params,
         "ensemble_report": ensemble_report,
+        "walk_forward_report": wf_report,
+        "retrain_trigger_status": retrain_status,
         "n_samples": int(len(X)),
         "n_features": len(feature_cols),
         "date_range": {"start": str(labeled_df.index.min()), "end": str(labeled_df.index.max())},
     }
 
 
-def train_stock_models():
-    """Per-stock bottom-up models (close-return q50 only, used for HSI aggregation)."""
-    print("=== Training per-stock bottom-up models ===")
-    from ccass_scraper import get_ccass_change
+# ---------------------------------------------------------------------------
+# Per-stock bottom-up model training
+# ---------------------------------------------------------------------------
 
+def train_stock_models():
+    print("=== Training per-stock bottom-up models ===")
     universe = get_universe()
     stock_metrics = {}
 
@@ -182,6 +193,10 @@ def train_stock_models():
     return stock_metrics
 
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 def main():
     hsi_metrics = train_hsi_models()
     stock_metrics = train_stock_models()
@@ -194,7 +209,7 @@ def main():
     with open(METRICS_PATH, "w") as f:
         json.dump(metrics, f, indent=2, default=str)
 
-    LAST_TRAIN_DATE_PATH.write_text(datetime.date.today().isoformat())
+    mark_trained_today()
 
     print("=== Training complete ===")
     print(json.dumps(metrics, indent=2, default=str))
@@ -202,4 +217,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
