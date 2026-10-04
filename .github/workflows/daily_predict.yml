@@ -2,7 +2,7 @@ name: Daily HSI Predict & Monitor
 
 on:
   schedule:
-    - cron: '0 1 * * 1-5'
+    - cron: '0 1 * * 1-5'   # 01:00 UTC = 09:00 HKT
   workflow_dispatch:
 
 jobs:
@@ -38,26 +38,19 @@ jobs:
         working-directory: src
         run: python predict.py
 
+      - name: Generate trading signal
+        working-directory: src
+        run: python signal_generator.py
+
       - name: Run drift evaluation
         working-directory: src
         run: python evaluate_drift.py
-
-      - name: Check walk-forward calendar trigger
-        working-directory: src
-        run: |
-          python -c "
-          from walk_forward import should_retrain
-          import json
-          status = should_retrain()
-          print(json.dumps(status, indent=2))
-          if status['should_retrain']:
-              print('>>> NOTICE: Retrain recommended (calendar or drift trigger). Run training in Colab.')
-          "
 
       - name: Commit results
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
           git add logs/ predictions/ data/ *.flag 2>/dev/null || true
-          git commit -m "auto: predict + evaluate $(date +%F)" || echo "No changes to commit"
+          git commit -m "auto: predict + signal + evaluate $(date +%F)" || echo "No changes to commit"
           git push
+
