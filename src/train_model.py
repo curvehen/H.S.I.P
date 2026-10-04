@@ -83,4 +83,123 @@ def train_hsi_models():
     X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
     y_train, y_val = y_close.iloc[:split_idx], y_close.iloc[split_idx:]
 
-    ens
+    ensemble = HSIEnsembleModel(lgb_params=LGB_PARAMS)
+    ensemble_report = ensemble.fit(X_train, y_train, X_val, y_val)
+    print("Ensemble weights:", ensemble_report["weights"])
+    ensemble.save(prefix="hsi")
+
+    # ---- Quantile models for close band (q10/q50/q90) ----
+    print("=== Training quantile models (close q10/q50/q90) ===")
+    def train_quantile(y, alpha):
+        m = lgb.LGBMRegressor(objective="quantile", alpha=alpha,
+                               **{k: v for k, v in LGB_PARAMS.items()})
+        m.fit(X, y)
+        return m
+
+    model_close_q10 = train_quantile(y_close, 0.1)
+    model_close_q50 = train_quantile(y_close, 0.5)
+    model_close_q90 = train_quantile(y_close, 0.9)
+
+    model_close_q10.booster_.save_model(str(MODEL_CLOSE_Q10_PATH))
+    model_close_q50.booster_.save_model(str(MODEL_CLOSE_Q50_PATH))
+    model_close_q90.booster_.save_model(str(MODEL_CLOSE_Q90_PATH))
+
+    # ---- Direct High / Low regressors ----
+    print("=== Training High/Low regressors ===")
+    model_high = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
+    model_high.fit(X, y_high)
+    model_high.booster_.save_model(str(MODEL_HIGH_PATH))
+
+    model_low = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
+    model_low.fit(X, y_low)
+    model_low.booster_.save_model(str(MODEL_LOW_PATH))
+
+    # ---- Save feature column list (critical: predict.py must use same order) ----
+    with open(FEATURE_LIST_PATH, "w") as f:
+        json.dump(feature_cols, f)
+
+    # ---- Meta-confidence model ----
+    print("=== Training meta-confidence model ===")
+    primary_pred = model_close_q50.predict(X)
+    meta_labels = build_meta_labels(pd.Series(primary_pred, index=X.index), y_close)
+    train_meta_model(X, meta_labels)
+
+    return {
+        "avg_purged_kfold_rmse_close": avg_rmse,
+        "ensemble_report": ensemble_report,
+        "n_samples": int(len(X)),
+        "n_features": len(feature_cols),
+        "date_range": {"start": str(labeled_df.index.min()), "end": str(labeled_df.index.max())},
+    }
+
+
+def train_stock_models():
+    """Per-stock bottom-up models (close-return q50 only, used for HSI aggregation)."""
+    print("=== Training per-stock bottom-up models ===")
+    from ccass_scraper import get_ccass_change
+
+    universe = get_universe()
+    stock_metrics = {}
+
+    for ticker, weight in universe.items():
+        try:
+            print(f"Training {ticker} (weight={weight:.4f})")
+            stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
+            keywords = [ticker.split(".")[0]]
+
+            raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
+            ccass_change = get_ccass_change(ticker.split(".")[0])
+            stock_sentiment = get_stock_sentiment(keywords)
+
+            feat_df = build_features(raw, ccass_change=ccass_change,
+                                      stock_sentiment=stock_sentiment, ticker=ticker,
+                                      include_macro=False)
+            labeled_df = build_nextday_labels(feat_df)
+
+            if len(labeled_df) < 100:
+                print(f"Skipping {ticker}: insufficient data ({len(labeled_df)} rows)")
+                continue
+
+            feature_cols = get_numeric_feature_columns(labeled_df, exclude=LABEL_COLUMNS)
+            X = labeled_df[feature_cols]
+            y = labeled_df["next_close_return"]
+
+            model = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
+            model.fit(X, y)
+
+            model_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"
+            model.booster_.save_model(str(model_path))
+
+            feat_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_features.json"
+            with open(feat_path, "w") as f:
+                json.dump(feature_cols, f)
+
+            stock_metrics[ticker] = {"weight": weight, "n_samples": int(len(X))}
+        except Exception as e:
+            print(f"Failed training {ticker}: {e}")
+            continue
+
+    return stock_metrics
+
+
+def main():
+    hsi_metrics = train_hsi_models()
+    stock_metrics = train_stock_models()
+
+    metrics = {
+        "trained_at": datetime.datetime.utcnow().isoformat(),
+        "hsi_model": hsi_metrics,
+        "stock_models": stock_metrics,
+    }
+    with open(METRICS_PATH, "w") as f:
+        json.dump(metrics, f, indent=2, default=str)
+
+    LAST_TRAIN_DATE_PATH.write_text(datetime.date.today().isoformat())
+
+    print("=== Training complete ===")
+    print(json.dumps(metrics, indent=2, default=str))
+
+
+if __name__ == "__main__":
+    main()
+
