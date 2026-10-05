@@ -31,6 +31,20 @@ jobs:
           tar -xzf ta-lib-0.4.0-src.tar.gz
           cd ta-lib && ./configure --prefix=/usr && make && sudo make install
 
+      - name: Install TA-Lib system dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential wget
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib && ./configure --prefix=/usr && make && sudo make install
+
+      - name: Install TA-Lib Python wrapper
+        run: pip install TA-Lib
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
