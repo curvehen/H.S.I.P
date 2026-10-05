@@ -1,0 +1,20 @@
+{
+  "weights": {
+    "lgb": 0.33813012539248616,
+    "rf": 0.3366897099726499,
+    "ridge": 0.32518016463486404
+  },
+  "lag_cols": [
+    "MA5",
+    "MA20",
+    "MA60",
+    "MACD",
+    "MACD_SIGNAL",
+    "MACD_HIST",
+    "return_lag1",
+    "return_lag2",
+    "return_lag3",
+    "return_lag5",
+    "MACD_x_USFutures"
+  ]
+}
