@@ -132,6 +132,13 @@ def train_hsi_models():
     meta_labels = build_meta_labels(pd.Series(primary_pred, index=X.index), y_close)
     train_meta_model(X, meta_labels)
 
+    print("=== [Step 9] Training HSI probability model (P升/P跌) ===")
+    from probability_model import train_probability_model
+    from config import HSI_PROB_MODEL_PATH
+    train_probability_model(X, y_close, HSI_PROB_MODEL_PATH)
+
+  
+
     return {
         "best_hyperparams": best_params,
         "ensemble_report": ensemble_report,
@@ -149,6 +156,9 @@ def train_hsi_models():
 
 def train_stock_models():
     print("=== Training per-stock bottom-up models ===")
+    from probability_model import train_probability_model
+    from config import stock_prob_model_path, stock_high_model_path, stock_low_model_path
+
     universe = get_universe()
     stock_metrics = {}
 
@@ -173,13 +183,27 @@ def train_stock_models():
 
             feature_cols = get_numeric_feature_columns(labeled_df, exclude=LABEL_COLUMNS)
             X = labeled_df[feature_cols]
-            y = labeled_df["next_close_return"]
+            y_close = labeled_df["next_close_return"]
+            y_high = labeled_df["next_high_return"]
+            y_low = labeled_df["next_low_return"]
 
-            model = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
-            model.fit(X, y)
+            # Close q50 regressor
+            model_close = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
+            model_close.fit(X, y_close)
+            model_close.booster_.save_model(
+                str(STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"))
 
-            model_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"
-            model.booster_.save_model(str(model_path))
+            # High / Low regressors (per-stock, needed for email table)
+            model_high = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
+            model_high.fit(X, y_high)
+            model_high.booster_.save_model(str(stock_high_model_path(ticker)))
+
+            model_low = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
+            model_low.fit(X, y_low)
+            model_low.booster_.save_model(str(stock_low_model_path(ticker)))
+
+            # Probability (P升) classifier
+            train_probability_model(X, y_close, stock_prob_model_path(ticker))
 
             feat_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_features.json"
             with open(feat_path, "w") as f:
@@ -191,6 +215,7 @@ def train_stock_models():
             continue
 
     return stock_metrics
+
 
 
 # ---------------------------------------------------------------------------
