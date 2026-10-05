@@ -83,7 +83,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
-          git add logs/ predictions/ data/ models/ *.flag 2>/dev/null || true
+          git add logs/ 2>/dev/null || true
+          git add predictions/ 2>/dev/null || true
+          git add data/ 2>/dev/null || true
+          git add models/ 2>/dev/null || true
+          git add *.flag 2>/dev/null || true
           git commit -m "auto: predict + signal + evaluate $(date +%F)" || echo "No changes to commit"
           git pull --rebase origin main
           git push
@@ -96,16 +100,4 @@ jobs:
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
         run: python email_report.py
 
-      - name: Commit results
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "actions@github.com"
-          git add logs/ 2>/dev/null || true
-          git add predictions/ 2>/dev/null || true
-          git add data/ 2>/dev/null || true
-          git add models/ 2>/dev/null || true
-          git add *.flag 2>/dev/null || true
-          git commit -m "auto: predict + signal + evaluate $(date +%F)" || echo "No changes to commit"
-          git pull --rebase origin main
-          git push
-
+     
