@@ -1,19 +1,18 @@
 # Cell 4a: 重寫requirements.txt，移除TA-Lib（已經由setup_talib()獨立處理）
 %%writefile requirements.txt
-yfinance==0.2.40
-pandas==2.2.2
-numpy==1.26.4
-scikit-learn==1.5.0
-lightgbm==4.3.0
-matplotlib==3.9.0
-river==0.21.0
-joblib==1.4.2
-requests==2.32.3
-beautifulsoup4==4.12.3
-feedparser==6.0.11
-transformers==4.42.0
-torch==2.3.1
-lxml==5.2.2
-arch==7.0.0
-akshare==1.14.73
-optuna==3.6.1
+yfinance
+pandas
+numpy
+scikit-learn
+lightgbm
+matplotlib
+river
+joblib
+requests
+beautifulsoup4
+feedparser
+transformers
+lxml
+arch
+optuna
+akshare
