@@ -1,0 +1,2 @@
+predict_date,run_timestamp,last_close,entry_price,pred_high,pred_low,pred_close,pred_close_return_direct,pred_close_return_bottom_up,pred_close_return_blended,signal_confidence,worth_trading,worth_trading_reason,bottom_up_coverage_weight,data_source,is_stale,actual_close,directional_hit
+2026-10-05,2026-10-05T02:04:26.454187,23868.9609375,23802.956478943,24071.941522128498,23736.952020386005,23873.60481387603,0.0011886282279078024,-0.0007995139813185905,0.00019455712329460596,0.6829803338066289,False,預測波幅太細 (0.02% < 0.30%)，扣除成本後無意義,1.0,yfinance,False,,
