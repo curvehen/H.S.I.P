@@ -65,3 +65,12 @@ jobs:
           git commit -m "auto: predict + signal + evaluate $(date +%F)" || echo "No changes to commit"
           git push
 
+      - name: Send email report
+        working-directory: src
+        env:
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: python email_report.py
+
+
