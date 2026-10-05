@@ -2,8 +2,8 @@ name: Daily HSI Predict & Monitor
 
 on:
   schedule:
-    - cron: '0 1 * * 1-5'   # 01:00 UTC = 09:00 HKT
-  workflow_dispatch:
+    - cron: '0 11 * * 1-5'   # UTC 11:00 = 香港時間 19:00，週一至五
+  workflow_dispatch:          # 容許人手手動觸發補跑
 
 jobs:
   predict:
