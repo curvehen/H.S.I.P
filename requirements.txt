@@ -1,4 +1,3 @@
-# Cell 4a: 重寫requirements.txt，移除TA-Lib（已經由setup_talib()獨立處理）
 %%writefile requirements.txt
 yfinance
 pandas
