@@ -1,52 +1,52 @@
 {
-  "trained_at": "2026-10-05T02:00:52.037085",
+  "trained_at": "2026-10-05T03:14:26.489397",
   "hsi_model": {
     "best_hyperparams": {
-      "num_leaves": 53,
-      "learning_rate": 0.012660288523972867,
-      "max_depth": 4,
-      "min_child_samples": 54,
-      "subsample": 0.8220137597727646,
-      "colsample_bytree": 0.9199223356558829,
-      "reg_alpha": 0.03281141913179588,
-      "reg_lambda": 0.007885545768512345,
-      "n_estimators": 354,
+      "num_leaves": 44,
+      "learning_rate": 0.01271119611077222,
+      "max_depth": 3,
+      "min_child_samples": 12,
+      "subsample": 0.9423387909488193,
+      "colsample_bytree": 0.7554235485462273,
+      "reg_alpha": 0.04350907111964986,
+      "reg_lambda": 0.03619417955068518,
+      "n_estimators": 310,
       "verbosity": -1
     },
     "ensemble_report": {
-      "lgb_rmse": 0.013984845036215977,
-      "rf_rmse": 0.014044674607009741,
-      "ridge_rmse": 0.01454177729597846,
+      "lgb_rmse": 0.013986844666432874,
+      "rf_rmse": 0.014042510805586269,
+      "ridge_rmse": 0.014540548747117073,
       "weights": {
-        "lgb": 0.33813012539248616,
-        "rf": 0.3366897099726499,
-        "ridge": 0.32518016463486404
+        "lgb": 0.3380712995671748,
+        "rf": 0.3367311467366383,
+        "ridge": 0.3251975536961869
       }
     },
     "walk_forward_report": {
       "n_windows_evaluated": 5,
-      "avg_rmse": 0.012460206285905532,
-      "avg_directional_accuracy": 0.58493353028065,
+      "avg_rmse": 0.012427164811358924,
+      "avg_directional_accuracy": 0.5899556868537666,
       "rmse_per_window": [
-        0.01027484890932278,
-        0.009726761754441135,
-        0.012661120430374333,
-        0.015457125998932425,
-        0.014181174336456982
+        0.010155253300388767,
+        0.009602062897065994,
+        0.012748546838152566,
+        0.01546339346608026,
+        0.014166567555107038
       ],
       "directional_acc_per_window": [
-        0.5849335302806499,
-        0.5745937961595273,
-        0.5908419497784343,
-        0.5864106351550961,
-        0.5878877400295421
+        0.5952732644017725,
+        0.568685376661743,
+        0.6011816838995568,
+        0.604135893648449,
+        0.5805022156573116
       ]
     },
     "retrain_trigger_status": {
-      "days_since_last_train": 999999,
-      "calendar_trigger": true,
+      "days_since_last_train": 0,
+      "calendar_trigger": false,
       "drift_trigger": false,
-      "should_retrain": true
+      "should_retrain": false
     },
     "n_samples": 4064,
     "n_features": 47,
