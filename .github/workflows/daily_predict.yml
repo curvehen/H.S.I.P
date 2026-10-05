@@ -69,8 +69,10 @@ jobs:
           import json
           status = should_retrain()
           print(json.dumps(status, indent=2))
-          print('retrain=' + str(status['should_retrain']))
-          " >> "$GITHUB_OUTPUT"
+          with open('retrain_result.txt', 'w') as f:
+              f.write('retrain=' + str(status['should_retrain']))
+          "
+          cat retrain_result.txt >> "$GITHUB_OUTPUT"
 
       - name: Retrain model (if triggered)
         if: contains(steps.retrain_check.outputs.*, 'retrain=True')
