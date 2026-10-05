@@ -47,6 +47,7 @@ jobs:
         run: python evaluate_drift.py
 
       - name: Check walk-forward calendar trigger
+        id: retrain_check
         working-directory: src
         run: |
           python -c "
@@ -54,15 +55,21 @@ jobs:
           import json
           status = should_retrain()
           print(json.dumps(status, indent=2))
-          if status['should_retrain']:
-              print('>>> NOTICE: Retrain recommended. Run training in Colab.')
-          "
+          print('retrain=' + str(status['should_retrain']))
+          " >> "$GITHUB_OUTPUT"
+
+      - name: Retrain model (if triggered)
+        if: contains(steps.retrain_check.outputs.*, 'retrain=True')
+        working-directory: src
+        run: python train_model.py
+
       - name: Commit results
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
-          git add logs/ predictions/ data/ *.flag 2>/dev/null || true
+          git add logs/ predictions/ data/ models/ *.flag 2>/dev/null || true
           git commit -m "auto: predict + signal + evaluate $(date +%F)" || echo "No changes to commit"
+          git pull --rebase origin main
           git push
 
       - name: Send email report
@@ -72,5 +79,3 @@ jobs:
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
         run: python email_report.py
-
-
