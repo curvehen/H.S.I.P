@@ -96,3 +96,19 @@ ADR_PROXIES = {
     "9988.HK": {"adr_ticker": "BABA", "ratio": 8},
     "9618.HK": {"adr_ticker": "JD", "ratio": 2},
 }
+
+# ---- Probability models ----
+HSI_PROB_MODEL_PATH = MODEL_DIR / "hsi_probability_model.pkl"
+
+# ---- Per-stock model path helpers ----
+def stock_prob_model_path(ticker: str):
+    return STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_prob_model.pkl"
+
+def stock_high_model_path(ticker: str):
+    return STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_high.txt"
+
+def stock_low_model_path(ticker: str):
+    return STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_low.txt"
+
+# ---- Hit rate tracking ----
+HIT_RATE_PATH = MODEL_DIR / "hit_rates.json"
