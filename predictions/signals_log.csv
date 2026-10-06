@@ -1,3 +1,4 @@
 signal_date,direction,confidence_score,worth_trading,reason,last_close,entry_price,pred_low,pred_high,pred_close,data_source,is_stale,risk_reward_ratio
 2026-10-05,LONG,0.683,False,預測波幅太細 (0.02% < 0.30%)，扣除成本後無意義,23869.0,23803.0,23737.0,24071.9,23873.6,yfinance,False,1.07
 2026-10-05,SHORT,0.6298,False,信號不明，建議觀望,24040.3,,23862.9,24131.9,24002.9,yfinance,False,
+2026-10-06,SHORT,0.6278,False,信號不明，建議觀望,24333.9,,24221.9,24510.1,24365.9,yfinance,False,
