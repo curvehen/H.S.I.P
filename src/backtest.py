@@ -29,7 +29,7 @@ from labeling import build_nextday_labels, LABEL_COLUMNS
 from confidence import load_meta_model, get_signal_confidence
 from stock_universe import get_universe
 from data_sources import to_stooq_hk_code
-
+from confidence import load_meta_model, get_signal_confidence   # 加喺檔案頂部
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +214,8 @@ def run_walkforward_oos_backtest_hsi(start_date: str = "2026-01-01",
     i = cutoff_idx
     model_close, model_high, model_low = None, None, None
 
+    meta_model = load_meta_model()   # <-- 新加：讀取已訓練嘅 meta confidence model
+
     while i < len(labeled_df):
         # Retrain at the start and every N days thereafter, using only past data
         if (i - cutoff_idx) % retrain_every_n_days == 0:
@@ -233,6 +235,7 @@ def run_walkforward_oos_backtest_hsi(start_date: str = "2026-01-01",
         pred_close_return = float(model_close.predict(X_today)[0])
         pred_high_return = float(model_high.predict(X_today)[0])
         pred_low_return = float(model_low.predict(X_today)[0])
+        confidence = get_signal_confidence(meta_model, X_today)   # <-- 新加
 
         last_close = float(labeled_df["Close"].iloc[i])
         actual_close_return = float(y_all.iloc[i])
@@ -240,8 +243,11 @@ def run_walkforward_oos_backtest_hsi(start_date: str = "2026-01-01",
         results.append({
             "date": labeled_df.index[i],
             "last_close": last_close,
+            "pred_close_return": pred_close_return,     # <-- 新加：grid search 要用
+            "confidence": confidence,                     # <-- 新加：grid search 要用
             "pred_close": last_close * (1 + pred_close_return),
             "actual_close": last_close * (1 + actual_close_return),
+            "actual_close_return": actual_close_return,   # <-- 新加：計 expectancy 要用
             "pred_high": last_close * (1 + pred_high_return),
             "actual_high": last_close * (1 + float(y_high_all.iloc[i])),
             "pred_low": last_close * (1 + pred_low_return),
