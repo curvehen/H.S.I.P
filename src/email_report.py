@@ -36,6 +36,8 @@ def build_html_report(result: dict) -> str:
     stock_rows = ""
     for s in result["_stock_predictions"]:
         signal_color = "#2e7d32" if s["signal"] == "LONG" else "#c62828"
+        rsi_display = f"{s['rsi']:.1f}" if s['rsi'] is not None else 'N/A'
+        
         stock_rows += f"""
         <tr>
             <td style="padding:6px; border:1px solid #ddd;">{s['name']} ({s['ticker']})</td>
@@ -48,7 +50,7 @@ def build_html_report(result: dict) -> str:
             <td style="padding:6px; border:1px solid #ddd;">{s['pred_low']:.2f}</td>
             <td style="padding:6px; border:1px solid #ddd;">{s['pred_close']:.2f}</td>
             <td style="padding:6px; border:1px solid #ddd;">{s['pred_return_pct']:+.2f}%</td>
-            <td style="padding:6px; border:1px solid #ddd;">{s['rsi']:.1f if s['rsi'] else 'N/A'}</td>
+            <td style="padding:6px; border:1px solid #ddd;">{rsi_display}</td>
             <td style="padding:6px; border:1px solid #ddd;">{s['hit_rate']}</td>
         </tr>
         """
