@@ -1,4 +1,3 @@
-%%writefile src/run_daily_backtest.py
 """
 Daily backtest runner: simulates every trading day's prediction from
 start_date to today, for both HSI and per-stock models, then produces
