@@ -32,6 +32,9 @@ def fetch_stooq(stooq_ticker: str) -> pd.DataFrame:
     df["source"] = "stooq"
     return df
 
+def to_stooq_hk_code(ticker: str) -> str:
+    """0700.HK -> 0700.hk (Stooq uses 4-digit HK codes, not 5)."""
+    return ticker.replace(".HK", "").zfill(4) + ".hk"
 
 def fetch_with_fallback(ticker: str, stooq_ticker: str = None, retries: int = 2) -> pd.DataFrame:
     cache_path = DATA_DIR / f"{_clean_ticker_for_filename(ticker)}_last_good.csv"
