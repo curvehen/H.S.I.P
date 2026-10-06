@@ -37,7 +37,7 @@ from regime import detect_regime
 from probability_model import load_probability_model, predict_probability_up, classify_signal_strength
 from hit_rate_tracker import get_hit_rate
 from ccass_scraper import get_ccass_change
-
+from data_sources import to_stooq_hk_code
 
 def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
     for col in feature_cols:
@@ -112,7 +112,7 @@ def predict_hsi_bottom_up():
         if not model_path.exists() or not feat_path.exists():
             continue
         try:
-            stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
+            stooq_code = to_stooq_hk_code(ticker)
             raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
             keywords = [ticker.split(".")[0]]
             stock_sentiment = get_stock_sentiment(keywords)
