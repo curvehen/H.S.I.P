@@ -1,0 +1,37 @@
+{
+  "MIN_EXPECTED_MOVE_PCT": 0.006,
+  "MIN_CONFIDENCE": 0.75,
+  "objective_used": "sharpe",
+  "objective_value": 0.3083,
+  "n_trades": 172,
+  "coverage_pct": 18.7,
+  "win_rate": 0.6453,
+  "expectancy_pct": 0.5302,
+  "backtest_start_date": "2023-01-01",
+  "backtest_mode": "honest_walkforward_with_confidence",
+  "retrain_every_n_days": 10,
+  "min_coverage_constraint": 15,
+  "stability_check": {
+    "first_half": {
+      "move_pct": 0.006,
+      "confidence": 0.75,
+      "n_trades": 113,
+      "coverage_pct": 24.6,
+      "win_rate": 0.6195,
+      "expectancy_pct": 0.4483,
+      "sharpe": 0.3047,
+      "status": "OK"
+    },
+    "second_half": {
+      "move_pct": 0.006,
+      "confidence": 0.75,
+      "n_trades": 59,
+      "coverage_pct": 12.8,
+      "win_rate": 0.6949,
+      "expectancy_pct": 0.6871,
+      "sharpe": 0.3239,
+      "status": "OK"
+    },
+    "is_stable": true
+  }
+}
