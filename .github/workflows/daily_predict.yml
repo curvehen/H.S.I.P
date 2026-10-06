@@ -60,6 +60,10 @@ jobs:
         working-directory: src
         run: python evaluate_drift.py
 
+      - name: Update hit rate tracker          # <-- 新加呢個 step
+        working-directory: src
+        run: python hit_rate_tracker.py
+
       - name: Check walk-forward calendar trigger
         id: retrain_check
         working-directory: src
