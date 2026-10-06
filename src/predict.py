@@ -40,6 +40,7 @@ from ccass_scraper import get_ccass_change
 from data_sources import to_stooq_hk_code
 from market_hours import get_latest_usable_row
 
+
 def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
     for col in feature_cols:
         if col not in latest_row.columns:
@@ -255,6 +256,7 @@ def predict_today():
         "last_close": last_close,
         "entry_price": last_close,                          # <-- 新加：入場價 = 最新收市價
         "pred_close_return_blended": blended_return,         # <-- 新加：signal_generator / evaluate_drift 要用
+        "hit_rate": get_hit_rate("HSI"),                    # <-- 新加hit_rate
         "p_up": hsi["p_up"],
         "p_down": 1 - hsi["p_up"],
         "signal_strength_label": hsi["signal_strength_label"],
