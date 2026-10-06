@@ -3,9 +3,7 @@ Central configuration — shared by Colab (training) and GitHub Actions (inferen
 All paths resolve relative to the repo root (parent of this src/ folder),
 regardless of the current working directory the scripts are run from.
 """
-# ---- Worth-trading verdict thresholds ----
-# Auto-tuned via threshold_tuning.py (walk-forward OOS grid search)
-import json
+
 from pathlib import Path
     
 SRC_DIR = Path(__file__).resolve().parent
@@ -115,6 +113,17 @@ def stock_low_model_path(ticker: str):
 # ---- Hit rate tracking ----
 HIT_RATE_PATH = MODEL_DIR / "hit_rates.json"
 
+
+# config.py 入面，MODEL_DIR 定義之後、檔案最尾加返呢段：
+
+MODEL_DIR = ROOT_DIR / "models"          # <-- 呢個應該已經存在喺你原本 config.py
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+# ... 其餘原有 config.py 內容（ticker、LGB_PARAMS 等）保持不變 ...
+
+# ---- Worth-trading verdict thresholds ----
+# Auto-tuned via threshold_tuning.py (walk-forward OOS grid search)
+import json
 
 _THRESHOLD_PARAMS_PATH = MODEL_DIR / "threshold_best_params.json"
 if _THRESHOLD_PARAMS_PATH.exists():
