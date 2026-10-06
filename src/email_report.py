@@ -13,7 +13,7 @@ from email.mime.text import MIMEText
 
 from config import PRED_LOG_PATH
 from predict import predict_today
-
+from signal_generator import generate_signal       # <-- 新加 import
 
 def send_email(sender_email, app_password, recipient_email, subject, html_body):
     msg = MIMEMultipart("alternative")
@@ -34,9 +34,11 @@ def build_html_report(result: dict) -> str:
     verdict_text = result["worth_trading_reason"]
 
     stock_rows = ""
+    signal = generate_signal(result)                # <-- 新加：攞返 risk_reward_ratio
     for s in result["_stock_predictions"]:
         signal_color = "#2e7d32" if s["signal"] == "LONG" else "#c62828"
         rsi_display = f"{s['rsi']:.1f}" if s['rsi'] is not None else 'N/A'
+        rr_display = f"1 : {signal['risk_reward_ratio']}" if signal["risk_reward_ratio"] else "N/A"
         
         stock_rows += f"""
         <tr>
@@ -66,6 +68,16 @@ def build_html_report(result: dict) -> str:
             <td style="padding:8px; border:1px solid #ddd;"><b>P(跌)</b></td>
             <td style="padding:8px; border:1px solid #ddd; color:#c62828; font-weight:bold;">{result['p_down']*100:.1f}%</td>
         </tr>
+
+        <tr>
+            <td style="padding:8px; border:1px solid #ddd;"><b>值博率 (Risk:Reward)</b></td>
+            <td style="padding:8px; border:1px solid #ddd; font-weight:bold;" colspan="3">{rr_display}</td>
+        </tr>
+        <tr>
+            <td style="padding:8px; border:1px solid #ddd;"><b>歷史命中率 (HSI)</b></td>
+            <td style="padding:8px; border:1px solid #ddd; font-weight:bold;" colspan="3">{result['hit_rate']}</td>
+        </tr>
+        
         <tr>
             <td style="padding:8px; border:1px solid #ddd;"><b>信號強度</b></td>
             <td style="padding:8px; border:1px solid #ddd;" colspan="3">
