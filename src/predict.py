@@ -253,6 +253,8 @@ def predict_today():
         "predict_date": hsi["predict_date"],
         "run_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "last_close": last_close,
+        "entry_price": last_close,                          # <-- 新加：入場價 = 最新收市價
+        "pred_close_return_blended": blended_return,         # <-- 新加：signal_generator / evaluate_drift 要用
         "p_up": hsi["p_up"],
         "p_down": 1 - hsi["p_up"],
         "signal_strength_label": hsi["signal_strength_label"],
@@ -276,6 +278,7 @@ def predict_today():
         "_stock_predictions": stock_predictions,   # underscore = excluded from CSV log row
     }
     return result
+
 
 
 def append_to_log(result: dict):
