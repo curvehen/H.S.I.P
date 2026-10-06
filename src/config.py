@@ -3,7 +3,9 @@ Central configuration — shared by Colab (training) and GitHub Actions (inferen
 All paths resolve relative to the repo root (parent of this src/ folder),
 regardless of the current working directory the scripts are run from.
 """
-
+# ---- Worth-trading verdict thresholds ----
+# Auto-tuned via threshold_tuning.py (walk-forward OOS grid search)
+import json
 from pathlib import Path
     
 SRC_DIR = Path(__file__).resolve().parent
@@ -54,8 +56,17 @@ PAGE_HINKLEY_DELTA = 0.005
 PAGE_HINKLEY_THRESHOLD = 10
 
 # ---- Worth-trading verdict thresholds ----
-MIN_EXPECTED_MOVE_PCT = 0.003
-MIN_CONFIDENCE = 0.60
+# Auto-tuned via threshold_tuning.py (walk-forward OOS grid search)
+_THRESHOLD_PARAMS_PATH = MODEL_DIR / "threshold_best_params.json"
+if _THRESHOLD_PARAMS_PATH.exists():
+    with open(_THRESHOLD_PARAMS_PATH) as _f:
+        _tuned = json.load(_f)
+    MIN_EXPECTED_MOVE_PCT = _tuned["MIN_EXPECTED_MOVE_PCT"]
+    MIN_CONFIDENCE = _tuned["MIN_CONFIDENCE"]
+else:
+    MIN_EXPECTED_MOVE_PCT = 0.003
+    MIN_CONFIDENCE = 0.60
+
 
 # ---- LightGBM default hyperparameters (fixed, stable, no external tuning dependency) ----
 LGB_PARAMS = {
@@ -114,24 +125,3 @@ def stock_low_model_path(ticker: str):
 HIT_RATE_PATH = MODEL_DIR / "hit_rates.json"
 
 
-# config.py 入面，MODEL_DIR 定義之後、檔案最尾加返呢段：
-
-MODEL_DIR = ROOT_DIR / "models"          # <-- 呢個應該已經存在喺你原本 config.py
-MODEL_DIR.mkdir(parents=True, exist_ok=True)
-
-# ... 其餘原有 config.py 內容（ticker、LGB_PARAMS 等）保持不變 ...
-
-# ---- Worth-trading verdict thresholds ----
-# Auto-tuned via threshold_tuning.py (walk-forward OOS grid search)
-import json
-
-_THRESHOLD_PARAMS_PATH = MODEL_DIR / "threshold_best_params.json"
-if _THRESHOLD_PARAMS_PATH.exists():
-    with open(_THRESHOLD_PARAMS_PATH) as _f:
-        _tuned = json.load(_f)
-    MIN_EXPECTED_MOVE_PCT = _tuned["MIN_EXPECTED_MOVE_PCT"]
-    MIN_CONFIDENCE = _tuned["MIN_CONFIDENCE"]
-else:
-    # Fallback defaults if tuning has not been run yet
-    MIN_EXPECTED_MOVE_PCT = 0.003
-    MIN_CONFIDENCE = 0.60
