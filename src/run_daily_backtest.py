@@ -28,6 +28,8 @@ from confidence import load_meta_model, get_signal_confidence
 from probability_model import load_probability_model, predict_probability_up
 from regime import detect_regime
 from stock_universe import get_universe
+from data_sources import to_stooq_hk_code
+
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +114,8 @@ def daily_backtest_insample_stock(ticker: str, start_date: str) -> pd.DataFrame:
     if not model_path.exists() or not feat_path.exists():
         return pd.DataFrame()
 
-    stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
+    # stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
+    stooq_code = to_stooq_hk_code(ticker)
     raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
     feat_df = build_features(raw, ccass_change=0.0, stock_sentiment=0.0,
                               ticker=ticker, include_macro=False)
