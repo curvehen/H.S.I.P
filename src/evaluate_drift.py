@@ -14,9 +14,12 @@ from config import (PRED_LOG_PATH, DIRECTIONAL_ACC_MIN, ROLLING_WINDOW,
                      PAGE_HINKLEY_DELTA, PAGE_HINKLEY_THRESHOLD,
                      HSI_TICKER, RETRAIN_FLAG_PATH)
 from data_sources import fetch_with_fallback
-
+from market_hours import get_market_session
 
 def update_actuals(log: pd.DataFrame) -> pd.DataFrame:
+    if get_market_session() != "post_market":
+      print("Skip backfill: market not yet closed.")
+      return log
     raw = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
     raw.index = pd.to_datetime(raw.index).date
 
