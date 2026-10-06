@@ -38,6 +38,7 @@ from probability_model import load_probability_model, predict_probability_up, cl
 from hit_rate_tracker import get_hit_rate
 from ccass_scraper import get_ccass_change
 from data_sources import to_stooq_hk_code
+from market_hours import get_latest_usable_row
 
 def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
     for col in feature_cols:
@@ -52,10 +53,11 @@ def predict_hsi():
     market_sentiment = get_daily_market_sentiment()
 
     raw = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
+    raw, session = get_latest_usable_row(raw)          # <-- 新加呢一行
     feat_df = build_features(raw, us_futures=us_futures, vix=vix,
                               ccass_change=0.0, market_sentiment=market_sentiment,
                               stock_sentiment=0.0, ticker=HSI_TICKER, include_macro=True)
-
+  
     m_close_q10 = lgb.Booster(model_file=str(MODEL_CLOSE_Q10_PATH))
     m_close_q90 = lgb.Booster(model_file=str(MODEL_CLOSE_Q90_PATH))
     m_high = lgb.Booster(model_file=str(MODEL_HIGH_PATH))
@@ -114,6 +116,7 @@ def predict_hsi_bottom_up():
         try:
             stooq_code = to_stooq_hk_code(ticker)
             raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
+            raw, session = get_latest_usable_row(raw)        # <-- 新加
             keywords = [ticker.split(".")[0]]
             stock_sentiment = get_stock_sentiment(keywords)
             ccass_change = get_ccass_change(ticker.split(".")[0])
@@ -154,6 +157,7 @@ def predict_single_stock(ticker: str):
     try:
         stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
         raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
+        raw, session = get_latest_usable_row(raw)            # <-- 新加
         keywords = [ticker.split(".")[0]]
         stock_sentiment = get_stock_sentiment(keywords)
         ccass_change = get_ccass_change(ticker.split(".")[0])
