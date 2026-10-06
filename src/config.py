@@ -3,9 +3,22 @@ Central configuration — shared by Colab (training) and GitHub Actions (inferen
 All paths resolve relative to the repo root (parent of this src/ folder),
 regardless of the current working directory the scripts are run from.
 """
-
+# ---- Worth-trading verdict thresholds ----
+# Auto-tuned via threshold_tuning.py (walk-forward OOS grid search)
+import json
 from pathlib import Path
 
+_THRESHOLD_PARAMS_PATH = MODEL_DIR / "threshold_best_params.json"
+if _THRESHOLD_PARAMS_PATH.exists():
+    with open(_THRESHOLD_PARAMS_PATH) as _f:
+        _tuned = json.load(_f)
+    MIN_EXPECTED_MOVE_PCT = _tuned["MIN_EXPECTED_MOVE_PCT"]
+    MIN_CONFIDENCE = _tuned["MIN_CONFIDENCE"]
+else:
+    # Fallback defaults if tuning has not been run yet
+    MIN_EXPECTED_MOVE_PCT = 0.003
+    MIN_CONFIDENCE = 0.60
+    
 SRC_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SRC_DIR.parent
 
