@@ -44,8 +44,8 @@ def check_drift(log: pd.DataFrame) -> dict:
     ph = PageHinkley(delta=PAGE_HINKLEY_DELTA, threshold=PAGE_HINKLEY_THRESHOLD)
     drift_detected = False
     for e in completed["error"]:
-        in_drift, _ = ph.update(e)
-        if in_drift:
+        ph.update(e)
+        if ph.drift_detected:
             drift_detected = True
 
     rolling_acc = completed["directional_hit"].tail(ROLLING_WINDOW).mean()
