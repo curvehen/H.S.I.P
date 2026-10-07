@@ -231,8 +231,12 @@ def summarize_performance(df: pd.DataFrame, label: str = "HSI") -> dict:
     rmse = float(np.sqrt(((df["pred_close"] - df["actual_close"]) ** 2).mean()))
     mae_pct = float(((df["pred_close"] - df["actual_close"]).abs() / df["actual_close"]).mean() * 100)
 
-    high_coverage = ((df["actual_close"] <= df["pred_high"]) &
-                      (df["actual_close"] >= df["pred_low"])).mean()
+    if "pred_high" in df.columns and "pred_low" in df.columns:
+        high_coverage = ((df["actual_close"] <= df["pred_high"]) &
+                          (df["actual_close"] >= df["pred_low"])).mean()
+        coverage_pct = round(float(high_coverage) * 100, 1)
+    else:
+        coverage_pct = None   # 個股模型冇 high/low，跳過呢個指標
 
     return {
         "label": label,
@@ -241,10 +245,11 @@ def summarize_performance(df: pd.DataFrame, label: str = "HSI") -> dict:
         "directional_accuracy": round(float(df["directional_hit"].mean()), 4),
         "rmse": round(rmse, 2),
         "mean_abs_error_pct": round(mae_pct, 3),
-        "pred_range_coverage_pct": round(float(high_coverage) * 100, 1),
+        "pred_range_coverage_pct": coverage_pct,
         "rolling_5d_accuracy_latest": round(float(df["directional_hit"].tail(5).mean()), 4) if len(df) >= 5 else None,
         "below_random_warning": bool(df["directional_hit"].mean() < DIRECTIONAL_ACC_MIN),
     }
+
 
 
 def plot_backtest_chart(df: pd.DataFrame, save_path, title: str = "HSI Backtest"):
