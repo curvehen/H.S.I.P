@@ -1,0 +1,1 @@
+Retrain flagged at 2026-10-07 11:20:15.818060+00:00. Details: {'status': 'OK', 'rolling_directional_accuracy': 0.0, 'page_hinkley_drift_detected': False, 'accuracy_breach': True, 'needs_retrain': True}
