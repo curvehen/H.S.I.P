@@ -293,6 +293,7 @@ def run(mode: str = "insample", start_date: str = "2026-01-01"):
     hsi_csv_path = PRED_DIR / f"daily_backtest_hsi_{mode}.csv"
     hsi_df.to_csv(hsi_csv_path, index=False)
     hsi_summary = summarize_performance(hsi_df, "HSI")
+    hsi_df.to_csv(PRED_DIR / "backtest_hsi.csv", index=False)    # <-- 新加：hit_rate_tracker.py 要讀呢個名
 
     chart_path = PRED_DIR / f"daily_backtest_hsi_{mode}_chart.png"
     plot_backtest_chart(hsi_df, chart_path, title=f"HSI Daily Backtest ({mode})")
@@ -318,6 +319,7 @@ def run(mode: str = "insample", start_date: str = "2026-01-01"):
     if all_stock_rows:
         stock_df = pd.concat(all_stock_rows, ignore_index=True)
         stock_df.to_csv(PRED_DIR / "daily_backtest_stocks.csv", index=False)
+        stock_df.to_csv(PRED_DIR / "backtest_stocks.csv", index=False)   # <-- 新加：hit_rate_tracker.py 要讀呢個名
 
     full_report = {
         "mode": mode,
