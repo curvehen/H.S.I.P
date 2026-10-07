@@ -60,6 +60,10 @@ jobs:
         working-directory: src
         run: python evaluate_drift.py
 
+      - name: Run daily backtest (for hit rate data)
+        working-directory: src
+        run: python run_daily_backtest.py
+        
       - name: Update hit rate tracker          # <-- 新加呢個 step
         working-directory: src
         run: python hit_rate_tracker.py
@@ -104,4 +108,4 @@ jobs:
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
         run: python email_report.py
 
-     
+
