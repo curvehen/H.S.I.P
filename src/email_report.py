@@ -17,17 +17,20 @@ from signal_generator import generate_signal
 
 
 def send_email(sender_email, app_password, recipient_email, subject, html_body):
+    # 支援單一或多個收件人（逗號分隔）
+    recipients = [r.strip() for r in recipient_email.split(",") if r.strip()]
+
     msg = MIMEMultipart("alternative")
     msg["From"] = sender_email
-    msg["To"] = recipient_email
+    msg["To"] = ", ".join(recipients)   # email header 顯示用
     msg["Subject"] = subject
     msg.attach(MIMEText(html_body, "html"))
 
     with smtplib.SMTP("smtp.gmail.com", 587) as server:
         server.starttls()
         server.login(sender_email, app_password)
-        server.sendmail(sender_email, recipient_email, msg.as_string())
-    print(f"Email sent to {recipient_email}")
+        server.sendmail(sender_email, recipients, msg.as_string())   # sendmail 要傳 list
+    print(f"Email sent to {', '.join(recipients)}")
 
 
 def build_html_report(result: dict) -> str:
