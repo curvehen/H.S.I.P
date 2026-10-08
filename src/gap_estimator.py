@@ -42,15 +42,26 @@ def compute_historical_gaps(hsi_df: pd.DataFrame) -> pd.Series:
     """
     Computes the realized overnight gap for each trading day:
         gap_t = (Open_t - Close_{t-1}) / Close_{t-1}
-
-    hsi_df must have a DatetimeIndex and an 'Open'/'Close' column, sorted
-    ascending by date.
     """
+    # 防禦：若 columns 係 MultiIndex（yfinance 新版常見），先攤平
+    if isinstance(hsi_df.columns, pd.MultiIndex):
+        hsi_df = hsi_df.copy()
+        hsi_df.columns = [c[0] for c in hsi_df.columns]
+
     if not {"Open", "Close"}.issubset(hsi_df.columns):
         raise ValueError("compute_historical_gaps() requires 'Open' and 'Close' columns.")
 
-    prev_close = hsi_df["Close"].shift(1)
-    gap = (hsi_df["Open"] - prev_close) / prev_close
+    open_col = hsi_df["Open"]
+    close_col = hsi_df["Close"]
+
+    # 二重防禦：若因重複欄位名導致仍為 DataFrame，強制取第一欄並轉 Series
+    if isinstance(open_col, pd.DataFrame):
+        open_col = open_col.iloc[:, 0]
+    if isinstance(close_col, pd.DataFrame):
+        close_col = close_col.iloc[:, 0]
+
+    prev_close = close_col.shift(1)
+    gap = (open_col - prev_close) / prev_close
     return gap
 
 
