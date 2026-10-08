@@ -1,124 +1,144 @@
 {
-  "trained_at": "2026-10-05T03:14:26.489397",
+  "trained_at": "2026-10-08T07:30:32.466606",
   "hsi_model": {
     "best_hyperparams": {
-      "num_leaves": 44,
-      "learning_rate": 0.01271119611077222,
-      "max_depth": 3,
-      "min_child_samples": 12,
-      "subsample": 0.9423387909488193,
-      "colsample_bytree": 0.7554235485462273,
-      "reg_alpha": 0.04350907111964986,
-      "reg_lambda": 0.03619417955068518,
-      "n_estimators": 310,
+      "num_leaves": 46,
+      "learning_rate": 0.008210590985629127,
+      "max_depth": 4,
+      "min_child_samples": 50,
+      "subsample": 0.708587829781372,
+      "colsample_bytree": 0.5069979363259826,
+      "reg_alpha": 0.09225545258635497,
+      "reg_lambda": 1.591997054660827,
+      "n_estimators": 658,
       "verbosity": -1
     },
     "ensemble_report": {
-      "lgb_rmse": 0.013986844666432874,
-      "rf_rmse": 0.014042510805586269,
-      "ridge_rmse": 0.014540548747117073,
+      "lgb_rmse": 0.01395930350357339,
+      "rf_rmse": 0.014005780154062276,
+      "ridge_rmse": 0.014515720286254204,
       "weights": {
-        "lgb": 0.3380712995671748,
-        "rf": 0.3367311467366383,
-        "ridge": 0.3251975536961869
+        "lgb": 0.3380263075103999,
+        "rf": 0.33690460495899816,
+        "ridge": 0.3250690875306019
       }
     },
     "walk_forward_report": {
       "n_windows_evaluated": 5,
-      "avg_rmse": 0.012427164811358924,
-      "avg_directional_accuracy": 0.5899556868537666,
+      "avg_rmse": 0.012415422705014592,
+      "avg_directional_accuracy": 0.5819793205317578,
       "rmse_per_window": [
-        0.010155253300388767,
-        0.009602062897065994,
-        0.012748546838152566,
-        0.01546339346608026,
-        0.014166567555107038
+        0.0101847358312977,
+        0.009704798393973117,
+        0.012568869887286026,
+        0.015441616158453809,
+        0.01417709325406231
       ],
       "directional_acc_per_window": [
-        0.5952732644017725,
-        0.568685376661743,
-        0.6011816838995568,
-        0.604135893648449,
-        0.5805022156573116
+        0.5805022156573116,
+        0.5760709010339734,
+        0.5878877400295421,
+        0.5760709010339734,
+        0.5893648449039882
       ]
     },
     "retrain_trigger_status": {
-      "days_since_last_train": 0,
+      "days_since_last_train": 3,
       "calendar_trigger": false,
-      "drift_trigger": false,
-      "should_retrain": false
+      "drift_trigger": true,
+      "should_retrain": true
     },
-    "n_samples": 4064,
+    "regime_threshold_calibration": {
+      "BULL": {
+        "long": 0.62,
+        "short": 0.28,
+        "f1": 0.9929,
+        "n": 320
+      },
+      "NEUTRAL": {
+        "long": 0.72,
+        "short": 0.28,
+        "f1": 1.0,
+        "n": 122
+      },
+      "BEAR": {
+        "long": 0.74,
+        "short": 0.28,
+        "f1": 1.0,
+        "n": 169
+      }
+    },
+    "n_samples": 4067,
     "n_features": 47,
     "date_range": {
       "start": "2010-03-30 00:00:00",
-      "end": "2026-10-02 00:00:00"
+      "end": "2026-10-07 00:00:00"
     }
   },
   "stock_models": {
     "0700.HK": {
       "weight": 0.13728813559322034,
-      "n_samples": 4068
+      "n_samples": 4071
     },
     "9988.HK": {
       "weight": 0.10508474576271187,
-      "n_samples": 1626
+      "n_samples": 1629
     },
     "0941.HK": {
       "weight": 0.09830508474576272,
-      "n_samples": 4068
+      "n_samples": 4071
     },
     "1299.HK": {
       "weight": 0.09322033898305085,
-      "n_samples": 3864
+      "n_samples": 3867
     },
     "0388.HK": {
       "weight": 0.08813559322033898,
-      "n_samples": 4068
+      "n_samples": 4071
     },
     "3690.HK": {
       "weight": 0.07627118644067797,
-      "n_samples": 1916
+      "n_samples": 1919
     },
     "0005.HK": {
       "weight": 0.07457627118644068,
-      "n_samples": 4068
+      "n_samples": 4071
     },
     "1810.HK": {
       "weight": 0.05084745762711865,
-      "n_samples": 1969
+      "n_samples": 1972
     },
     "2318.HK": {
       "weight": 0.04745762711864407,
-      "n_samples": 4041
+      "n_samples": 4044
     },
     "0016.HK": {
       "weight": 0.04237288135593221,
-      "n_samples": 4068
+      "n_samples": 4071
     },
     "0027.HK": {
       "weight": 0.03389830508474576,
-      "n_samples": 4068
+      "n_samples": 4071
     },
     "0883.HK": {
       "weight": 0.03389830508474576,
-      "n_samples": 4068
+      "n_samples": 4071
     },
     "1398.HK": {
       "weight": 0.03220338983050847,
-      "n_samples": 4068
+      "n_samples": 4071
     },
     "3988.HK": {
       "weight": 0.030508474576271184,
-      "n_samples": 4068
+      "n_samples": 4071
     },
     "0002.HK": {
       "weight": 0.028813559322033902,
-      "n_samples": 4068
+      "n_samples": 4071
     },
     "0001.HK": {
       "weight": 0.027118644067796613,
-      "n_samples": 4068
+      "n_samples": 4071
     }
   }
 }

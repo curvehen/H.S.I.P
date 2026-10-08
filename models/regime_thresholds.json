@@ -1,0 +1,23 @@
+{
+  "thresholds": {
+    "BULL": {
+      "long": 0.62,
+      "short": 0.28,
+      "f1": 0.9929,
+      "n": 320
+    },
+    "NEUTRAL": {
+      "long": 0.72,
+      "short": 0.28,
+      "f1": 1.0,
+      "n": 122
+    },
+    "BEAR": {
+      "long": 0.74,
+      "short": 0.28,
+      "f1": 1.0,
+      "n": 169
+    }
+  },
+  "fitted": true
+}
