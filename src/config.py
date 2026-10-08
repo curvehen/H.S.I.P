@@ -124,4 +124,9 @@ def stock_low_model_path(ticker: str):
 # ---- Hit rate tracking ----
 HIT_RATE_PATH = MODEL_DIR / "hit_rates.json"
 
+# ---- Transaction cost simulation ----
+TRANSACTION_COST = 0.002      # 雙邊交易成本（佔金額百分比）
+SLIPPAGE_POINTS = 3           # 每次進出場滑點（指數點數）
+
+
 
