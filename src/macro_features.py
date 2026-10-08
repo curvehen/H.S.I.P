@@ -121,3 +121,37 @@ def get_adr_implied_return_history(start_date: str, end_date: str,
 
     return us_overnight_return.dropna()
 
+def get_market_overnight_return(us_futures_ticker: str = "ES=F") -> float:
+    """
+    單一最新值版本：回傳最近一日美股期貨（預設 ES=F）嘅隔夜回報，
+    用於 predict.py 嘅 HSI 開市 gap 估算（非個股 ADR）。
+    Returns 0.0 (neutral) if fetch fails.
+    """
+    try:
+        import yfinance as yf
+        df = yf.download(us_futures_ticker, period="5d", progress=False)
+        if len(df) < 2:
+            return 0.0
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] for c in df.columns]
+        return float(df["Close"].pct_change().iloc[-1])
+    except Exception as e:
+        print(f"Market overnight return fetch failed: {e}")
+        return 0.0
+
+
+def get_market_overnight_return_history(start_date: str, end_date: str,
+                                          us_futures_ticker: str = "ES=F") -> pd.Series:
+    """
+    批量歷史版本，對齊 HSI 交易日，用於 gap_estimator.py::calibrate_gap_model() 訓練。
+    同 get_market_overnight_return() 用同一個 ticker 同計算方式，確保訓練/推論一致。
+    """
+    import yfinance as yf
+    df = yf.download(us_futures_ticker, start=start_date, end=end_date, progress=False)
+    if df.empty:
+        return pd.Series(dtype=float)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [c[0] for c in df.columns]
+    series = df["Close"].pct_change()
+    series.index = pd.to_datetime(series.index).tz_localize(None)
+    return series.dropna()
