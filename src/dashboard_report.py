@@ -258,6 +258,12 @@ def send_dashboard_email(sender_email, app_password, recipient_email, subject, h
 
 
 if __name__ == "__main__":
+    DASHBOARD_ENABLED = os.environ.get("DASHBOARD_ENABLED", "true").lower() in ("true", "1", "yes")
+
+    if not DASHBOARD_ENABLED:
+        print("Dashboard sending is disabled (DASHBOARD_ENABLED=false). Skipping.")
+        raise SystemExit(0)
+
     SENDER_EMAIL = os.environ.get("EMAIL_SENDER")
     APP_PASSWORD = os.environ.get("EMAIL_APP_PASSWORD")
     RECIPIENT_EMAIL = os.environ.get("EMAIL_RECIPIENT")
