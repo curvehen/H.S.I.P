@@ -40,6 +40,12 @@ from data_sources import to_stooq_hk_code
 from market_hours import get_latest_usable_row, get_next_trading_day
 from threshold_calibrator import RegimeThresholdCalibrator
 from position_sizer import PositionSizer
+from gap_estimator import load_gap_model, estimate_next_open_price
+from macro_features import get_adr_implied_return
+from config import MODEL_OPEN_HIGH_PATH, MODEL_OPEN_LOW_PATH
+
+
+
 
 
 def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
@@ -73,8 +79,8 @@ def predict_hsi():
 
     m_close_q10 = lgb.Booster(model_file=str(MODEL_CLOSE_Q10_PATH))
     m_close_q90 = lgb.Booster(model_file=str(MODEL_CLOSE_Q90_PATH))
-    m_high = lgb.Booster(model_file=str(MODEL_HIGH_PATH))
-    m_low = lgb.Booster(model_file=str(MODEL_LOW_PATH))
+    m_high_open = lgb.Booster(model_file=str(MODEL_OPEN_HIGH_PATH))   # <-- 改用 open-based 模型
+    m_low_open = lgb.Booster(model_file=str(MODEL_OPEN_LOW_PATH))     # <-- 改用 open-based 模型
     ensemble = HSIEnsembleModel.load(prefix="hsi")
     with open(FEATURE_LIST_PATH) as f:
         feature_cols = json.load(f)
@@ -85,8 +91,8 @@ def predict_hsi():
     pred_close_q10 = float(m_close_q10.predict(X_latest)[0])
     pred_close_mid = float(ensemble.predict_loaded(X_latest)[0])
     pred_close_q90 = float(m_close_q90.predict(X_latest)[0])
-    pred_high_return = float(m_high.predict(X_latest)[0])
-    pred_low_return = float(m_low.predict(X_latest)[0])
+    pred_high_return_open = float(m_high_open.predict(X_latest)[0])   # <-- 相對明日開市價嘅百分比
+    pred_low_return_open = float(m_low_open.predict(X_latest)[0])
 
     meta_model = load_meta_model()
     confidence = get_signal_confidence(meta_model, X_latest)
@@ -96,8 +102,20 @@ def predict_hsi():
     strength = classify_signal_strength(p_up)
 
     regime = detect_regime(feat_df)
-
     last_close = float(latest_row["Close"].values[0])
+
+    # --- 新增：估算明日開市價 ---
+    gap_model = load_gap_model()
+    us_overnight_return = get_adr_implied_return()
+    estimated_next_open = estimate_next_open_price(last_close, us_overnight_return, gap_model)
+
+    # 還原高低預測：用「估算開市價」做基準，而非今日收市價
+    pred_high_absolute = estimated_next_open * (1 + pred_high_return_open)
+    pred_low_absolute = estimated_next_open * (1 + pred_low_return_open)
+
+    # 轉換返做「相對今日收市價」嘅百分比，保持 predict_today() 下游邏輯不變
+    pred_high_return = (pred_high_absolute - last_close) / last_close
+    pred_low_return = (pred_low_absolute - last_close) / last_close
 
     data_as_of_date = latest_row.index[0].date()
     target_trading_date = get_next_trading_day(data_as_of_date)
@@ -107,8 +125,10 @@ def predict_hsi():
         "pred_close_return_q10": pred_close_q10,
         "pred_close_return_mid": pred_close_mid,
         "pred_close_return_q90": pred_close_q90,
-        "pred_high_return": pred_high_return,
+        "pred_high_return": pred_high_return,       # 已經係 open-based 還原後嘅數值
         "pred_low_return": pred_low_return,
+        "estimated_next_open": estimated_next_open,  # <-- 新增，方便 email/dashboard 顯示
+        "gap_estimate_pct": (estimated_next_open - last_close) / last_close * 100,
         "p_up": p_up,
         "signal_strength_label": strength["label"],
         "signal_strength_margin": strength["margin_pct"],
