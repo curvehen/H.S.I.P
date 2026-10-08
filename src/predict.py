@@ -5,11 +5,13 @@ INFERENCE SCRIPT — run daily by GitHub Actions. CPU-only, lightweight.
 3. Generates bottom-up prediction (weighted aggregation of stock close predictions).
 4. Blends direct + bottom-up.
 5. Applies meta-confidence filter.
-6. Outputs entry/high/low/close + worth-trading verdict.
-7. Appends everything to the prediction log.
+6. Applies regime-calibrated long/short threshold (ENH#1) to determine signal direction.
+7. Computes Fractional Kelly position size (ENH#3), adjusted by regime + rolling accuracy.
+8. Outputs entry/high/low/close + worth-trading verdict + position size.
+9. Appends everything to the prediction log.
 
 Generates: P(up)/P(down), signal strength, regime, HSI high/low/close,
-range stats, and full per-stock prediction table with hit rates.
+range stats, position sizing, and full per-stock prediction table with hit rates.
 """
 
 import json
@@ -36,6 +38,8 @@ from hit_rate_tracker import get_hit_rate
 from ccass_scraper import get_ccass_change
 from data_sources import to_stooq_hk_code
 from market_hours import get_latest_usable_row, get_next_trading_day
+from threshold_calibrator import RegimeThresholdCalibrator
+from position_sizer import PositionSizer
 
 
 def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
@@ -43,6 +47,17 @@ def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame
         if col not in latest_row.columns:
             latest_row[col] = 0
     return latest_row[feature_cols].astype(float)
+
+
+def _parse_hit_rate_pct(hit_rate_str: str) -> float:
+    """Converts a hit_rate display string like '65.8%' into a 0-1 float.
+    Falls back to a neutral 0.5 if unavailable ('N/A')."""
+    if not hit_rate_str or hit_rate_str == "N/A":
+        return 0.5
+    try:
+        return float(hit_rate_str.strip("%")) / 100
+    except (ValueError, AttributeError):
+        return 0.5
 
 
 def predict_hsi():
@@ -252,10 +267,27 @@ def predict_today():
     verdict = is_worth_trading(blended_return, hsi["signal_confidence"])
     stock_predictions = predict_all_stocks()
 
+    # --- ENH#1: Regime-calibrated long/short threshold ---
+    calibrator = RegimeThresholdCalibrator.load()
+    calibrated_signal = calibrator.get_signal(prob=hsi["p_up"], regime=hsi["regime"])
+    # calibrated_signal: 1 (long) / -1 (short) / 0 (觀望，落在兩個門檻之間)
+    calibrated_signal_label = {1: "LONG", -1: "SHORT", 0: "觀望"}[calibrated_signal]
+    regime_thresholds_used = calibrator.thresholds.get(hsi["regime"], calibrator.thresholds.get("NEUTRAL"))
+
+    # --- ENH#3: Fractional Kelly position sizing ---
+    sizer = PositionSizer(kelly_fraction=0.25, max_position=1.0, min_edge=0.02)
+    roll_acc = _parse_hit_rate_pct(get_hit_rate("HSI"))
+    position_size_pct = sizer.compute_size(
+        prob=hsi["p_up"],
+        signal=calibrated_signal if calibrated_signal != 0 else int(np.sign(blended_return)),
+        regime=hsi["regime"],
+        roll_acc=roll_acc,
+    )
+
     result = {
         "predict_date": hsi["predict_date"],
-        "data_as_of_date": hsi["data_as_of_date"],            # <-- 新加：數據截數日
-        "target_trading_date": hsi["target_trading_date"],     # <-- 新加：預測嘅下一個交易日
+        "data_as_of_date": hsi["data_as_of_date"],
+        "target_trading_date": hsi["target_trading_date"],
         "run_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "last_close": last_close,
         "entry_price": last_close,
@@ -266,6 +298,9 @@ def predict_today():
         "signal_strength_label": hsi["signal_strength_label"],
         "signal_strength_margin": hsi["signal_strength_margin"],
         "regime": hsi["regime"],
+        "calibrated_signal": calibrated_signal_label,
+        "calibrated_signal_thresholds": regime_thresholds_used,
+        "position_size_pct": round(position_size_pct * 100, 1),
         "pred_high": predicted_high,
         "pred_high_pct": (predicted_high - last_close) / last_close * 100,
         "pred_low": predicted_low,
@@ -287,7 +322,12 @@ def predict_today():
 
 
 def append_to_log(result: dict):
-    row = pd.DataFrame([{k: v for k, v in result.items() if not k.startswith("_")}])
+    # calibrated_signal_thresholds is a nested dict — exclude it from the flat
+    # CSV log row (same underscore convention as _stock_predictions), but keep
+    # it in the JSON output / email report via the full result dict.
+    flat_result = {k: v for k, v in result.items()
+                    if not k.startswith("_") and k != "calibrated_signal_thresholds"}
+    row = pd.DataFrame([flat_result])
     if PRED_LOG_PATH.exists():
         log = pd.read_csv(PRED_LOG_PATH)
         log = pd.concat([log, row], ignore_index=True)
