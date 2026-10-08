@@ -13,7 +13,8 @@ from email.mime.text import MIMEText
 
 from config import PRED_LOG_PATH
 from predict import predict_today
-from signal_generator import generate_signal       # <-- 新加 import
+from signal_generator import generate_signal
+
 
 def send_email(sender_email, app_password, recipient_email, subject, html_body):
     msg = MIMEMultipart("alternative")
@@ -33,13 +34,15 @@ def build_html_report(result: dict) -> str:
     regime_color = {"BULL": "#2e7d32", "BEAR": "#c62828", "NEUTRAL": "#757575"}.get(result["regime"], "#757575")
     verdict_text = result["worth_trading_reason"]
 
+    # 修正：rr_display 移出迴圈，喺迴圈之前計好一次，避免 NameError（當 _stock_predictions 係空list）
+    signal = generate_signal(result)
+    rr_display = f"1 : {signal['risk_reward_ratio']}" if signal["risk_reward_ratio"] else "N/A"
+
     stock_rows = ""
-    signal = generate_signal(result)                # <-- 新加：攞返 risk_reward_ratio
     for s in result["_stock_predictions"]:
         signal_color = "#2e7d32" if s["signal"] == "LONG" else "#c62828"
         rsi_display = f"{s['rsi']:.1f}" if s['rsi'] is not None else 'N/A'
-        rr_display = f"1 : {signal['risk_reward_ratio']}" if signal["risk_reward_ratio"] else "N/A"
-        
+
         stock_rows += f"""
         <tr>
             <td style="padding:6px; border:1px solid #ddd;">{s['name']} ({s['ticker']})</td>
@@ -59,7 +62,11 @@ def build_html_report(result: dict) -> str:
 
     html = f"""
     <html><body style="font-family: Arial, sans-serif; color:#333;">
-    <h2>HSI 次日預測報告 — {result['predict_date']}</h2>
+    <h2>HSI 次日預測報告</h2>
+    <p style="font-size:14px; color:#555;">
+        <b>數據截數日:</b> {result['data_as_of_date']} &nbsp;&nbsp;|&nbsp;&nbsp;
+        <b>預測交易日:</b> {result['target_trading_date']}
+    </p>
 
     <table style="border-collapse: collapse; width:100%; max-width:600px; margin-bottom:20px;">
         <tr>
@@ -77,7 +84,7 @@ def build_html_report(result: dict) -> str:
             <td style="padding:8px; border:1px solid #ddd;"><b>歷史命中率 (HSI)</b></td>
             <td style="padding:8px; border:1px solid #ddd; font-weight:bold;" colspan="3">{result['hit_rate']}</td>
         </tr>
-        
+
         <tr>
             <td style="padding:8px; border:1px solid #ddd;"><b>信號強度</b></td>
             <td style="padding:8px; border:1px solid #ddd;" colspan="3">
@@ -155,5 +162,6 @@ if __name__ == "__main__":
     result = predict_today()
     html = build_html_report(result)
 
-    subject = f"HSI次日預測 {result['predict_date']} | {result['regime']} | P升{result['p_up']*100:.0f}%"
+    subject = (f"HSI預測 {result['target_trading_date']} "
+               f"(數據:{result['data_as_of_date']}) | {result['regime']} | P升{result['p_up']*100:.0f}%")
     send_email(SENDER_EMAIL, APP_PASSWORD, RECIPIENT_EMAIL, subject, html)
