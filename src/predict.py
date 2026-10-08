@@ -39,6 +39,7 @@ from hit_rate_tracker import get_hit_rate
 from ccass_scraper import get_ccass_change
 from data_sources import to_stooq_hk_code
 from market_hours import get_latest_usable_row
+from market_hours import get_latest_usable_row, get_next_trading_day
 
 
 def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
@@ -87,6 +88,10 @@ def predict_hsi():
 
     last_close = float(latest_row["Close"].values[0])
 
+    data_as_of_date = latest_row.index[0].date()
+    target_trading_date = get_next_trading_day(data_as_of_date)
+
+
     return {
         "last_close": last_close,
         "pred_close_return_q10": pred_close_q10,
@@ -102,6 +107,8 @@ def predict_hsi():
         "data_source": latest_row["source"].values[0],
         "is_stale": bool(latest_row["is_stale"].values[0]),
         "predict_date": str(latest_row.index[0].date()),
+        "data_as_of_date": str(data_as_of_date),
+        "target_trading_date": str(target_trading_date),
     }
 
 
