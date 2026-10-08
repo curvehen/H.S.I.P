@@ -42,7 +42,7 @@ from walk_forward import should_retrain, mark_trained_today, expanding_window_va
 from regime import detect_regime
 from threshold_calibrator import RegimeThresholdCalibrator
 from gap_estimator import calibrate_gap_model
-from macro_features import get_adr_implied_return_history
+from macro_features import get_market_overnight_return_history  # 改名修正
 
 # ---------------------------------------------------------------------------
 # Dataset construction
@@ -224,7 +224,7 @@ def train_hsi_models():
     # ═══════════════════════════════════════════════════════════
     print("=== [Step 11] Calibrating overnight gap estimation model ===")
     raw_hsi_for_gap = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
-    us_overnight_history = get_adr_implied_return_history(
+    us_overnight_history = get_market_overnight_return_history(
         start_date=str(raw_hsi_for_gap.index.min().date()),
         end_date=str(raw_hsi_for_gap.index.max().date())
     )
