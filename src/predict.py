@@ -7,10 +7,7 @@ INFERENCE SCRIPT — run daily by GitHub Actions. CPU-only, lightweight.
 5. Applies meta-confidence filter.
 6. Outputs entry/high/low/close + worth-trading verdict.
 7. Appends everything to the prediction log.
-"""
 
-"""
-INFERENCE SCRIPT — run daily by GitHub Actions. CPU-only, lightweight.
 Generates: P(up)/P(down), signal strength, regime, HSI high/low/close,
 range stats, and full per-stock prediction table with hit rates.
 """
@@ -38,7 +35,6 @@ from probability_model import load_probability_model, predict_probability_up, cl
 from hit_rate_tracker import get_hit_rate
 from ccass_scraper import get_ccass_change
 from data_sources import to_stooq_hk_code
-from market_hours import get_latest_usable_row
 from market_hours import get_latest_usable_row, get_next_trading_day
 
 
@@ -55,11 +51,11 @@ def predict_hsi():
     market_sentiment = get_daily_market_sentiment()
 
     raw = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
-    raw, session = get_latest_usable_row(raw)          # <-- 新加呢一行
+    raw, session = get_latest_usable_row(raw)
     feat_df = build_features(raw, us_futures=us_futures, vix=vix,
                               ccass_change=0.0, market_sentiment=market_sentiment,
                               stock_sentiment=0.0, ticker=HSI_TICKER, include_macro=True)
-  
+
     m_close_q10 = lgb.Booster(model_file=str(MODEL_CLOSE_Q10_PATH))
     m_close_q90 = lgb.Booster(model_file=str(MODEL_CLOSE_Q90_PATH))
     m_high = lgb.Booster(model_file=str(MODEL_HIGH_PATH))
@@ -90,7 +86,6 @@ def predict_hsi():
 
     data_as_of_date = latest_row.index[0].date()
     target_trading_date = get_next_trading_day(data_as_of_date)
-
 
     return {
         "last_close": last_close,
@@ -124,7 +119,7 @@ def predict_hsi_bottom_up():
         try:
             stooq_code = to_stooq_hk_code(ticker)
             raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
-            raw, session = get_latest_usable_row(raw)        # <-- 新加
+            raw, session = get_latest_usable_row(raw)
             keywords = [ticker.split(".")[0]]
             stock_sentiment = get_stock_sentiment(keywords)
             ccass_change = get_ccass_change(ticker.split(".")[0])
@@ -165,7 +160,7 @@ def predict_single_stock(ticker: str):
     try:
         stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
         raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
-        raw, session = get_latest_usable_row(raw)            # <-- 新加
+        raw, session = get_latest_usable_row(raw)
         keywords = [ticker.split(".")[0]]
         stock_sentiment = get_stock_sentiment(keywords)
         ccass_change = get_ccass_change(ticker.split(".")[0])
@@ -259,11 +254,13 @@ def predict_today():
 
     result = {
         "predict_date": hsi["predict_date"],
+        "data_as_of_date": hsi["data_as_of_date"],            # <-- 新加：數據截數日
+        "target_trading_date": hsi["target_trading_date"],     # <-- 新加：預測嘅下一個交易日
         "run_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "last_close": last_close,
-        "entry_price": last_close,                          # <-- 新加：入場價 = 最新收市價
-        "pred_close_return_blended": blended_return,         # <-- 新加：signal_generator / evaluate_drift 要用
-        "hit_rate": get_hit_rate("HSI"),                    # <-- 新加hit_rate
+        "entry_price": last_close,
+        "pred_close_return_blended": blended_return,
+        "hit_rate": get_hit_rate("HSI"),
         "p_up": hsi["p_up"],
         "p_down": 1 - hsi["p_up"],
         "signal_strength_label": hsi["signal_strength_label"],
@@ -284,10 +281,9 @@ def predict_today():
         "is_stale": hsi["is_stale"],
         "actual_close": None,
         "directional_hit": None,
-        "_stock_predictions": stock_predictions,   # underscore = excluded from CSV log row
+        "_stock_predictions": stock_predictions,
     }
     return result
-
 
 
 def append_to_log(result: dict):
