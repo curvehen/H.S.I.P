@@ -173,7 +173,8 @@ def predict_single_stock(ticker: str):
         return None
 
     try:
-        stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
+        # OLD version stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
+        stooq_code = to_stooq_hk_code(ticker)   # 直接用返已經 import 咗嘅共用函數
         raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
         raw, session = get_latest_usable_row(raw)
         keywords = [ticker.split(".")[0]]
