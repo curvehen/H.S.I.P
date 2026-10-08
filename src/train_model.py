@@ -13,8 +13,10 @@ Full pipeline:
 8. Train standalone quantile models (q10/q50/q90) for close band
 9. Train direct High / Low regressors
 10. Train Meta-Labeling (confidence) model
-11. Train per-stock bottom-up models (close q50)
-12. Save everything + metrics.json + mark_trained_today()
+11. Train HSI probability model (P升/P跌)
+12. Calibrate regime-based long/short probability thresholds (F1-optimized)
+13. Train per-stock bottom-up models (close q50)
+14. Save everything + metrics.json + mark_trained_today()
 """
 
 import json
@@ -37,6 +39,8 @@ from stock_universe import get_universe
 from ensemble_model import HSIEnsembleModel
 from optuna_tuning import run_optuna_search
 from walk_forward import should_retrain, mark_trained_today, expanding_window_validation
+from regime import detect_regime
+from threshold_calibrator import RegimeThresholdCalibrator
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +59,32 @@ def build_labeled_hsi_dataset():
                               stock_sentiment=0.0, ticker=HSI_TICKER, include_macro=True)
     labeled_df = build_nextday_labels(feat_df)
     return labeled_df
+
+
+def tag_historical_regimes(feat_df: pd.DataFrame) -> pd.Series:
+    """
+    Vectorized version of regime.py's detect_regime(), applied to every
+    historical row (not just the latest), so each training sample can be
+    tagged with the regime that was in effect on that day. This mirrors
+    detect_regime()'s exact BULL/BEAR/NEUTRAL logic row-by-row, so results
+    are fully consistent with what predict.py reports live.
+    """
+    close = feat_df["Close"]
+    ma20 = feat_df.get("MA20")
+    ma60 = feat_df.get("MA60")
+
+    if ma20 is None or ma60 is None:
+        return pd.Series("NEUTRAL", index=feat_df.index)
+
+    regime = pd.Series("NEUTRAL", index=feat_df.index)
+    valid = ma20.notna() & ma60.notna()
+
+    bull_mask = valid & (close > ma60) & (ma20 > ma60)
+    bear_mask = valid & (close < ma60) & (ma20 < ma60)
+
+    regime[bull_mask] = "BULL"
+    regime[bear_mask] = "BEAR"
+    return regime
 
 
 # ---------------------------------------------------------------------------
@@ -135,15 +165,40 @@ def train_hsi_models():
     print("=== [Step 9] Training HSI probability model (P升/P跌) ===")
     from probability_model import train_probability_model
     from config import HSI_PROB_MODEL_PATH
-    train_probability_model(X, y_close, HSI_PROB_MODEL_PATH)
+    prob_clf = train_probability_model(X, y_close, HSI_PROB_MODEL_PATH)
 
-  
+    print("=== [Step 10] Calibrating regime-based long/short thresholds (F1-optimized) ===")
+    # Tag every historical row with its regime (vectorized, matches regime.py logic)
+    regime_series = tag_historical_regimes(labeled_df)
+
+    # Build a held-out validation slice (last 15%, same split philosophy as the
+    # ensemble's own validation set) to calibrate thresholds on unseen-ish data
+    # rather than in-sample predictions, reducing overfit risk.
+    calib_split_idx = int(len(X) * 0.85)
+    X_calib = X.iloc[calib_split_idx:]
+    y_calib_actual_return = y_close.iloc[calib_split_idx:]
+    regime_calib = regime_series.iloc[calib_split_idx:]
+
+    calib_probs = prob_clf.predict_proba(X_calib)[:, 1] if prob_clf is not None else np.full(len(X_calib), 0.5)
+    actual_direction = (y_calib_actual_return > 0).astype(int)
+
+    calib_df = pd.DataFrame({
+        "p_up": calib_probs,
+        "actual_direction": actual_direction.values,
+        "regime": regime_calib.values,
+    }, index=X_calib.index)
+
+    calibrator = RegimeThresholdCalibrator()
+    calibrator.calibrate(calib_df, prob_col="p_up", target_col="actual_direction", regime_col="regime")
+    calibrator.save()
+    threshold_report = calibrator.thresholds
 
     return {
         "best_hyperparams": best_params,
         "ensemble_report": ensemble_report,
         "walk_forward_report": wf_report,
         "retrain_trigger_status": retrain_status,
+        "regime_threshold_calibration": threshold_report,
         "n_samples": int(len(X)),
         "n_features": len(feature_cols),
         "date_range": {"start": str(labeled_df.index.min()), "end": str(labeled_df.index.max())},
@@ -215,7 +270,6 @@ def train_stock_models():
             continue
 
     return stock_metrics
-
 
 
 # ---------------------------------------------------------------------------
