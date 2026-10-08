@@ -41,7 +41,7 @@ from market_hours import get_latest_usable_row, get_next_trading_day
 from threshold_calibrator import RegimeThresholdCalibrator
 from position_sizer import PositionSizer
 from gap_estimator import load_gap_model, estimate_next_open_price
-from macro_features import get_adr_implied_return
+from macro_features import get_market_overnight_return  # 改名修正
 from config import MODEL_OPEN_HIGH_PATH, MODEL_OPEN_LOW_PATH
 
 
@@ -106,7 +106,7 @@ def predict_hsi():
 
     # --- 新增：估算明日開市價 ---
     gap_model = load_gap_model()
-    us_overnight_return = get_adr_implied_return()
+    us_overnight_return = get_market_overnight_return()  # 不再需要 hk_ticker 參數
     estimated_next_open = estimate_next_open_price(last_close, us_overnight_return, gap_model)
 
     # 還原高低預測：用「估算開市價」做基準，而非今日收市價
