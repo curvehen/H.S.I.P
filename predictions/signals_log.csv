@@ -10,3 +10,4 @@ signal_date,direction,confidence_score,worth_trading,reason,last_close,entry_pri
 2026-10-07,SHORT,0.6349,False,信號不明，建議觀望,24130.5,24130.5,23943.1,24242.8,24108.5,yfinance,False,0.12
 2026-10-07,SHORT,0.6867,False,信號不明，建議觀望,24130.5,24130.5,23934.2,24226.4,24084.2,yfinance,False,0.24
 2026-10-08,LONG,0.6376,False,信號不明，建議觀望,23785.8,23785.8,23587.8,23903.9,23791.4,yfinance,False,0.03
+2026-10-08,SHORT,0.6441,False,信號不明，建議觀望,23785.8,23785.8,23585.8,23898.2,23782.4,yfinance,False,0.02
