@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 import pandas_market_calendars as mcal
 
@@ -30,7 +30,7 @@ def get_market_session(now: datetime = None) -> str:
     else:
         return "post_market"
 
-# market_hours.py (新增)
+
 def get_latest_usable_row(df, now=None):
     """session-aware: 盤前/盤中時，剔除「今日未收市」嘅未完成一行。"""
     session = get_market_session(now)
@@ -41,6 +41,7 @@ def get_latest_usable_row(df, now=None):
     if session in ("pre_market", "intraday") and last_date == today:
         df = df.iloc[:-1]          # 用返「前收」(上個完整交易日)
     return df, session
+
 
 _hkex_calendar = mcal.get_calendar("HKEX")
 
