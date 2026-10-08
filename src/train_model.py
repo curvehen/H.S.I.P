@@ -224,10 +224,16 @@ def train_hsi_models():
     # ═══════════════════════════════════════════════════════════
     print("=== [Step 11] Calibrating overnight gap estimation model ===")
     raw_hsi_for_gap = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
+    if isinstance(raw_hsi_for_gap.columns, pd.MultiIndex):
+      raw_hsi_for_gap.columns = [c[0] for c in raw_hsi_for_gap.columns]
     us_overnight_history = get_market_overnight_return_history(
         start_date=str(raw_hsi_for_gap.index.min().date()),
         end_date=str(raw_hsi_for_gap.index.max().date())
     )
+    print(raw_hsi_for_gap.columns.tolist())
+    print("Is MultiIndex:", isinstance(raw_hsi_for_gap.columns, pd.MultiIndex))
+    print("Has duplicates:", raw_hsi_for_gap.columns.duplicated().any())
+
     gap_calibration = calibrate_gap_model(raw_hsi_for_gap, us_overnight_history, min_samples=60)
     # ═══════════════════════════════════════════════════════════
 
