@@ -7,6 +7,7 @@ to break the main pipeline.
 
 import numpy as np
 import pandas as pd
+import yfinance as yf
 from config import ADR_PROXIES
 
 
@@ -98,4 +99,25 @@ def build_macro_features(close_prices: pd.Series, hk_ticker: str = None) -> dict
         "garch_volatility": garch_vol,
         "adr_implied_return": adr_return,
     }
+
+def get_adr_implied_return_history(start_date: str, end_date: str,
+                                     us_proxy_ticker: str = "ES=F") -> pd.Series:
+    """
+    批量計算歷史「隔夜美股期貨回報」序列，對齊 HSI 交易日。
+    用於 gap_estimator.py 嘅 calibrate_gap_model() 訓練。
+
+    us_proxy_ticker: 預設用 S&P500期貨(ES=F)做美股隔夜走勢代理，
+                      同你現有 config.py 嘅 US_FUTURES_TICKER 保持一致會更準確。
+    """
+    us_data = yf.download(us_proxy_ticker, start=start_date, end=end_date,
+                           progress=False, auto_adjust=True)
+    if us_data.empty:
+        return pd.Series(dtype=float)
+
+    # 美股隔夜回報：用美股自己嘅 daily return 作為 proxy
+    # （因為 HSI 開市時，美股已經收咗市，呢個就是"隔夜"發生咗嘅變動）
+    us_overnight_return = us_data["Close"].pct_change()
+    us_overnight_return.index = pd.to_datetime(us_overnight_return.index).tz_localize(None)
+
+    return us_overnight_return.dropna()
 
