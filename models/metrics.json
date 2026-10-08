@@ -1,58 +1,58 @@
 {
-  "trained_at": "2026-10-08T07:30:32.466606",
+  "trained_at": "2026-10-08T08:02:12.127973",
   "hsi_model": {
     "best_hyperparams": {
       "num_leaves": 46,
-      "learning_rate": 0.008210590985629127,
-      "max_depth": 4,
-      "min_child_samples": 50,
-      "subsample": 0.708587829781372,
-      "colsample_bytree": 0.5069979363259826,
-      "reg_alpha": 0.09225545258635497,
-      "reg_lambda": 1.591997054660827,
-      "n_estimators": 658,
+      "learning_rate": 0.006790071145317652,
+      "max_depth": 3,
+      "min_child_samples": 38,
+      "subsample": 0.8619636938631432,
+      "colsample_bytree": 0.8323072010753694,
+      "reg_alpha": 0.13310912454249207,
+      "reg_lambda": 0.007844253589848457,
+      "n_estimators": 756,
       "verbosity": -1
     },
     "ensemble_report": {
-      "lgb_rmse": 0.01395930350357339,
-      "rf_rmse": 0.014005780154062276,
-      "ridge_rmse": 0.014515720286254204,
+      "lgb_rmse": 0.013982380989779582,
+      "rf_rmse": 0.01400705779870067,
+      "ridge_rmse": 0.01451662145592811,
       "weights": {
-        "lgb": 0.3380263075103999,
-        "rf": 0.33690460495899816,
-        "ridge": 0.3250690875306019
+        "lgb": 0.3376739858885179,
+        "rf": 0.33707909218577115,
+        "ridge": 0.3252469219257109
       }
     },
     "walk_forward_report": {
       "n_windows_evaluated": 5,
-      "avg_rmse": 0.012415422705014592,
-      "avg_directional_accuracy": 0.5819793205317578,
+      "avg_rmse": 0.012401221635210683,
+      "avg_directional_accuracy": 0.5852289512555392,
       "rmse_per_window": [
-        0.0101847358312977,
-        0.009704798393973117,
-        0.012568869887286026,
-        0.015441616158453809,
-        0.01417709325406231
+        0.010130737285923957,
+        0.009707345518965139,
+        0.012565736043810689,
+        0.015415192567428494,
+        0.014187096759925136
       ],
       "directional_acc_per_window": [
-        0.5805022156573116,
+        0.5982274741506647,
         0.5760709010339734,
-        0.5878877400295421,
-        0.5760709010339734,
+        0.5775480059084195,
+        0.5849335302806499,
         0.5893648449039882
       ]
     },
     "retrain_trigger_status": {
-      "days_since_last_train": 3,
+      "days_since_last_train": 0,
       "calendar_trigger": false,
       "drift_trigger": true,
       "should_retrain": true
     },
     "regime_threshold_calibration": {
       "BULL": {
-        "long": 0.62,
+        "long": 0.66,
         "short": 0.28,
-        "f1": 0.9929,
+        "f1": 0.9907,
         "n": 320
       },
       "NEUTRAL": {

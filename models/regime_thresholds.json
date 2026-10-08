@@ -1,9 +1,9 @@
 {
   "thresholds": {
     "BULL": {
-      "long": 0.62,
+      "long": 0.66,
       "short": 0.28,
-      "f1": 0.9929,
+      "f1": 0.9907,
       "n": 320
     },
     "NEUTRAL": {
