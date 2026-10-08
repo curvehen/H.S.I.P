@@ -13,6 +13,10 @@ Two modes:
    available up to that point, then predicts forward until the next retrain.
    This simulates realistic walk-forward deployment and gives a much more
    honest estimate of real predictive performance.
+
+Both modes now support optional transaction cost + slippage simulation and
+Kelly-based position sizing, to estimate NET (after-cost) strategy returns
+rather than just raw directional accuracy.
 """
 
 import json
@@ -22,14 +26,88 @@ import lightgbm as lgb
 
 from config import (HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER, LGB_PARAMS,
                      PRED_DIR, STOCK_MODEL_DIR, FEATURE_LIST_PATH,
-                     MODEL_CLOSE_Q50_PATH, MODEL_HIGH_PATH, MODEL_LOW_PATH)
-from data_sources import fetch_with_fallback
+                     MODEL_CLOSE_Q50_PATH, MODEL_HIGH_PATH, MODEL_LOW_PATH,
+                     TRANSACTION_COST, SLIPPAGE_POINTS)
+from data_sources import fetch_with_fallback, to_stooq_hk_code
 from features import build_features, get_numeric_feature_columns
 from labeling import build_nextday_labels, LABEL_COLUMNS
 from confidence import load_meta_model, get_signal_confidence
 from stock_universe import get_universe
-from data_sources import to_stooq_hk_code
-from confidence import load_meta_model, get_signal_confidence   # 加喺檔案頂部
+from position_sizer import PositionSizer
+
+
+# ---------------------------------------------------------------------------
+# Cost + position-sizing helpers
+# ---------------------------------------------------------------------------
+
+def apply_cost_simulation(df: pd.DataFrame, confidence_col: str = "confidence",
+                           regime_col: str = None, use_position_sizing: bool = True) -> pd.DataFrame:
+    """
+    Adds gross/net strategy return columns to a backtest results DataFrame.
+    Requires columns: pred_close_return, actual_close_return, last_close.
+
+    - gross_ret: raw signal * actual return (no costs)
+    - position_size: Kelly-derived fraction of capital risked (0 if use_position_sizing=False, uses fixed 1.0)
+    - cost: transaction cost + slippage charged whenever the signal changes direction
+    - net_ret: position_size * actual_return - cost
+    """
+    df = df.copy()
+    df["signal"] = np.sign(df["pred_close_return"])
+
+    if use_position_sizing:
+        sizer = PositionSizer(kelly_fraction=0.25, max_position=1.0, min_edge=0.02)
+        sizes = []
+        for _, row in df.iterrows():
+            # Approximate win-probability from confidence score when available,
+            # otherwise fall back to a neutral 0.5 + small edge based on signal direction.
+            prob = row[confidence_col] if confidence_col in df.columns and pd.notna(row[confidence_col]) else 0.55
+            regime = row[regime_col] if regime_col and regime_col in df.columns else "NEUTRAL"
+            size = sizer.compute_size(prob=prob, signal=int(row["signal"]), regime=regime, roll_acc=0.5)
+            sizes.append(size if size > 0 else 0.0)
+        df["position_size"] = sizes
+    else:
+        df["position_size"] = df["signal"].abs()  # fixed full-size whenever there's a signal
+
+    df["gross_ret"] = df["signal"] * df["actual_close_return"]
+
+    # Cost charged whenever position changes (entry/exit), proportional to trade size.
+    df["sig_change"] = df["signal"].diff().abs().fillna(abs(df["signal"].iloc[0]) if len(df) else 0)
+    slippage_pct = (SLIPPAGE_POINTS / df["last_close"]).fillna(0)
+    df["cost"] = df["sig_change"] * (TRANSACTION_COST + slippage_pct) * df["position_size"].clip(lower=0.01)
+
+    df["strategy_ret"] = df["position_size"] * df["signal"] * df["actual_close_return"] - df["cost"]
+    df["bh_ret"] = df["actual_close_return"]  # Buy & Hold benchmark
+
+    return df
+
+
+def summarize_cost_adjusted(df: pd.DataFrame) -> dict:
+    """Summary stats comparing gross vs net (after-cost) strategy performance."""
+    if df.empty or "strategy_ret" not in df.columns:
+        return {}
+
+    n = len(df)
+    gross_cum = float((1 + df["gross_ret"]).prod() - 1)
+    net_cum = float((1 + df["strategy_ret"]).prod() - 1)
+    bh_cum = float((1 + df["bh_ret"]).prod() - 1)
+
+    net_mean = df["strategy_ret"].mean()
+    net_std = df["strategy_ret"].std()
+    sharpe = float(net_mean / net_std * np.sqrt(252)) if net_std > 0 else 0.0
+
+    total_cost = float(df["cost"].sum())
+    n_trades = int((df["sig_change"] > 0).sum())
+
+    return {
+        "n_days": n,
+        "n_trades": n_trades,
+        "gross_cumulative_return_pct": round(gross_cum * 100, 2),
+        "net_cumulative_return_pct": round(net_cum * 100, 2),
+        "buy_hold_cumulative_return_pct": round(bh_cum * 100, 2),
+        "total_cost_pct": round(total_cost * 100, 2),
+        "net_sharpe_annualized": round(sharpe, 3),
+        "avg_position_size": round(float(df["position_size"].mean()), 3),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +187,9 @@ def run_insample_backtest_hsi(start_date: str = "2026-01-01") -> pd.DataFrame:
         (results["pred_close"] - results["actual_close"]).abs() / results["actual_close"]
     )
 
+    # NEW: cost + position-sizing simulation
+    results = apply_cost_simulation(results, confidence_col="confidence", use_position_sizing=True)
+
     return results
 
 
@@ -123,7 +204,6 @@ def run_insample_backtest_stock(ticker: str, start_date: str = "2026-01-01") -> 
     if not model_path.exists() or not feat_path.exists():
         return pd.DataFrame()
 
-    # stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
     stooq_code = to_stooq_hk_code(ticker)
     raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
     feat_df = build_features(raw, ccass_change=0.0, stock_sentiment=0.0,
@@ -159,6 +239,10 @@ def run_insample_backtest_stock(ticker: str, start_date: str = "2026-01-01") -> 
     results["directional_hit"] = (
         np.sign(results["pred_close_return"]) == np.sign(results["actual_close_return"])
     ).astype(int)
+
+    # NEW: cost simulation (no confidence column available at per-stock level,
+    # so position sizing falls back to a neutral default inside apply_cost_simulation)
+    results = apply_cost_simulation(results, confidence_col="confidence", use_position_sizing=True)
 
     return results
 
@@ -214,7 +298,7 @@ def run_walkforward_oos_backtest_hsi(start_date: str = "2026-01-01",
     i = cutoff_idx
     model_close, model_high, model_low = None, None, None
 
-    meta_model = load_meta_model()   # <-- 新加：讀取已訓練嘅 meta confidence model
+    meta_model = load_meta_model()
 
     while i < len(labeled_df):
         # Retrain at the start and every N days thereafter, using only past data
@@ -235,7 +319,7 @@ def run_walkforward_oos_backtest_hsi(start_date: str = "2026-01-01",
         pred_close_return = float(model_close.predict(X_today)[0])
         pred_high_return = float(model_high.predict(X_today)[0])
         pred_low_return = float(model_low.predict(X_today)[0])
-        confidence = get_signal_confidence(meta_model, X_today)   # <-- 新加
+        confidence = get_signal_confidence(meta_model, X_today)
 
         last_close = float(labeled_df["Close"].iloc[i])
         actual_close_return = float(y_all.iloc[i])
@@ -243,11 +327,11 @@ def run_walkforward_oos_backtest_hsi(start_date: str = "2026-01-01",
         results.append({
             "date": labeled_df.index[i],
             "last_close": last_close,
-            "pred_close_return": pred_close_return,     # <-- 新加：grid search 要用
-            "confidence": confidence,                     # <-- 新加：grid search 要用
+            "pred_close_return": pred_close_return,
+            "confidence": confidence,
             "pred_close": last_close * (1 + pred_close_return),
             "actual_close": last_close * (1 + actual_close_return),
-            "actual_close_return": actual_close_return,   # <-- 新加：計 expectancy 要用
+            "actual_close_return": actual_close_return,
             "pred_high": last_close * (1 + pred_high_return),
             "actual_high": last_close * (1 + float(y_high_all.iloc[i])),
             "pred_low": last_close * (1 + pred_low_return),
@@ -256,7 +340,12 @@ def run_walkforward_oos_backtest_hsi(start_date: str = "2026-01-01",
         })
         i += 1
 
-    return pd.DataFrame(results)
+    df = pd.DataFrame(results)
+
+    # NEW: cost + position-sizing simulation
+    df = apply_cost_simulation(df, confidence_col="confidence", use_position_sizing=True)
+
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +356,7 @@ def summarize_backtest(results: pd.DataFrame, label: str = "HSI") -> dict:
     if results.empty:
         return {"label": label, "status": "NO_DATA"}
 
-    return {
+    summary = {
         "label": label,
         "n_days": int(len(results)),
         "date_range": f"{results['date'].min()} to {results['date'].max()}",
@@ -277,6 +366,12 @@ def summarize_backtest(results: pd.DataFrame, label: str = "HSI") -> dict:
         ), 3),
         "rmse": round(float(np.sqrt(((results["pred_close"] - results["actual_close"]) ** 2).mean())), 2),
     }
+
+    # NEW: merge in cost-adjusted performance stats if available
+    if "strategy_ret" in results.columns:
+        summary["cost_adjusted"] = summarize_cost_adjusted(results)
+
+    return summary
 
 
 # ---------------------------------------------------------------------------
