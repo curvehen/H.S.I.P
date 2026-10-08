@@ -28,10 +28,10 @@ import lightgbm as lgb
 from config import (MODEL_CLOSE_Q10_PATH, MODEL_CLOSE_Q50_PATH, MODEL_CLOSE_Q90_PATH,
                      MODEL_HIGH_PATH, MODEL_LOW_PATH, FEATURE_LIST_PATH, METRICS_PATH,
                      STOCK_MODEL_DIR, HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER,
-                     LGB_PARAMS)
+                     LGB_PARAMS, MODEL_OPEN_HIGH_PATH, MODEL_OPEN_LOW_PATH)
 from data_sources import fetch_with_fallback
 from features import build_features, get_numeric_feature_columns
-from labeling import build_nextday_labels, LABEL_COLUMNS
+from labeling import build_nextday_labels, LABEL_COLUMNS, build_nextday_labels_open_based
 from confidence import build_meta_labels, train_meta_model
 from news_sentiment import get_daily_market_sentiment, get_stock_sentiment
 from ccass_scraper import get_ccass_change
@@ -43,8 +43,6 @@ from regime import detect_regime
 from threshold_calibrator import RegimeThresholdCalibrator
 from gap_estimator import calibrate_gap_model
 from macro_features import get_adr_implied_return_history
-
-
 
 # ---------------------------------------------------------------------------
 # Dataset construction
@@ -159,6 +157,31 @@ def train_hsi_models():
 
     with open(FEATURE_LIST_PATH, "w") as f:
         json.dump(feature_cols, f)
+
+    print("=== [Step 7b] Training OPEN-BASED High / Low regressors (ENH#2) ===")
+    # 需要原始 OHLC 數據（labeled_df 已經有 Open/High/Low/Close），重新做 open-based labeling
+    raw_for_open_label = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
+    feat_df_for_open = build_features(raw_for_open_label, us_futures=fetch_with_fallback(US_FUTURES_TICKER),
+                                        vix=fetch_with_fallback(VIX_TICKER), ccass_change=0.0,
+                                        market_sentiment=get_daily_market_sentiment(), stock_sentiment=0.0,
+                                        ticker=HSI_TICKER, include_macro=True)
+    labeled_open_df = build_nextday_labels_open_based(feat_df_for_open)
+    
+    # 對齊同一組特徵欄位（同 close-based 模型共用 feature_cols）
+    for col in feature_cols:
+        if col not in labeled_open_df.columns:
+            labeled_open_df[col] = 0
+    X_open = labeled_open_df[feature_cols].astype(float)
+    y_high_open = labeled_open_df["next_high_return_open"]
+    y_low_open = labeled_open_df["next_low_return_open"]
+    
+    model_high_open = lgb.LGBMRegressor(objective="regression", **best_params)
+    model_high_open.fit(X_open, y_high_open)
+    model_high_open.booster_.save_model(str(MODEL_OPEN_HIGH_PATH))
+    
+    model_low_open = lgb.LGBMRegressor(objective="regression", **best_params)
+    model_low_open.fit(X_open, y_low_open)
+    model_low_open.booster_.save_model(str(MODEL_OPEN_LOW_PATH))
 
     print("=== [Step 8] Training Meta-Labeling (confidence) model ===")
     primary_pred = model_close_q50.predict(X)
