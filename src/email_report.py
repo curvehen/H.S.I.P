@@ -85,6 +85,27 @@ def build_html_report(result: dict) -> str:
             <td style="padding:8px; border:1px solid #ddd; font-weight:bold;" colspan="3">{result['hit_rate']}</td>
         </tr>
 
+        <!-- 新加：校準訊號 (Regime-based threshold) -->
+        <tr>
+            <td style="padding:8px; border:1px solid #ddd;"><b>校準訊號 (Regime校準)</b></td>
+            <td style="padding:8px; border:1px solid #ddd; font-weight:bold; color:{
+                '#2e7d32' if result['calibrated_signal']=='LONG' else
+                '#c62828' if result['calibrated_signal']=='SHORT' else '#757575'
+            };" colspan="3">
+                {result['calibrated_signal']}
+                （門檻: Long≥{result['calibrated_signal_thresholds']['long']:.2f} /
+                Short≤{result['calibrated_signal_thresholds']['short']:.2f}）
+            </td>
+        </tr>
+
+        <!-- 新加：建議倉位 (Fractional Kelly) -->
+        <tr>
+            <td style="padding:8px; border:1px solid #ddd;"><b>建議倉位 (Kelly)</b></td>
+            <td style="padding:8px; border:1px solid #ddd; font-weight:bold;" colspan="3">
+                {result['position_size_pct']:.1f}%
+            </td>
+        </tr>
+
         <tr>
             <td style="padding:8px; border:1px solid #ddd;"><b>信號強度</b></td>
             <td style="padding:8px; border:1px solid #ddd;" colspan="3">
@@ -163,5 +184,7 @@ if __name__ == "__main__":
     html = build_html_report(result)
 
     subject = (f"HSI預測 {result['target_trading_date']} "
-               f"(數據:{result['data_as_of_date']}) | {result['regime']} | P升{result['p_up']*100:.0f}%")
+           f"(數據:{result['data_as_of_date']}) | {result['regime']} | "
+           f"{result['calibrated_signal']} | P升{result['p_up']*100:.0f}%")
+
     send_email(SENDER_EMAIL, APP_PASSWORD, RECIPIENT_EMAIL, subject, html)
