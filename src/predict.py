@@ -79,6 +79,8 @@ def predict_hsi():
 
     m_close_q10 = lgb.Booster(model_file=str(MODEL_CLOSE_Q10_PATH))
     m_close_q90 = lgb.Booster(model_file=str(MODEL_CLOSE_Q90_PATH))
+    m_high = lgb.Booster(model_file=str(MODEL_HIGH_PATH))
+    m_low  = lgb.Booster(model_file=str(MODEL_LOW_PATH))
 
     ensemble = HSIEnsembleModel.load(prefix="hsi")
     with open(FEATURE_LIST_PATH) as f:
@@ -113,8 +115,6 @@ def predict_hsi():
         "pred_close_return_q90": pred_close_q90,
         "pred_high_return": pred_high_return,       # 已經係 open-based 還原後嘅數值
         "pred_low_return": pred_low_return,
-        "estimated_next_open": estimated_next_open,  # <-- 新增，方便 email/dashboard 顯示
-        "gap_estimate_pct": (estimated_next_open - last_close) / last_close * 100,
         "p_up": p_up,
         "signal_strength_label": strength["label"],
         "signal_strength_margin": strength["margin_pct"],
