@@ -33,6 +33,10 @@ MODEL_CLOSE_Q90_PATH = MODEL_DIR / "hsi_next_close_q90.txt"
 MODEL_HIGH_PATH = MODEL_DIR / "hsi_next_high.txt"
 MODEL_LOW_PATH = MODEL_DIR / "hsi_next_low.txt"
 
+MODEL_OPEN_HIGH_PATH = MODEL_DIR / "hsi_high_open_based.txt"
+MODEL_OPEN_LOW_PATH = MODEL_DIR / "hsi_low_open_based.txt"
+
+
 ENSEMBLE_RF_PATH = MODEL_DIR / "hsi_ensemble_rf.pkl"
 ENSEMBLE_RIDGE_PATH = MODEL_DIR / "hsi_ensemble_ridge.pkl"
 ENSEMBLE_WEIGHTS_PATH = MODEL_DIR / "hsi_ensemble_weights.json"
