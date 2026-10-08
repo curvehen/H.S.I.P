@@ -1,160 +1,300 @@
 {
   "mode": "insample",
-  "generated_at": "2026-10-08T04:22:18.355374+00:00",
+  "generated_at": "2026-10-08T07:39:19.312781+00:00",
   "hsi_summary": {
     "label": "HSI",
     "n_days": 188,
     "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-    "directional_accuracy": 0.6596,
-    "rmse": 280.27,
-    "mean_abs_error_pct": 0.864,
-    "pred_range_coverage_pct": 46.8,
+    "directional_accuracy": 0.7074,
+    "rmse": 273.77,
+    "mean_abs_error_pct": 0.83,
+    "pred_range_coverage_pct": 45.7,
     "rolling_5d_accuracy_latest": 0.8,
-    "below_random_warning": false
+    "below_random_warning": false,
+    "cost_adjusted": {
+      "n_days": 188,
+      "n_trades": 101,
+      "gross_cumulative_return_pct": 128.67,
+      "net_cumulative_return_pct": 0.73,
+      "buy_hold_cumulative_return_pct": -9.6,
+      "total_cost_pct": 1.15,
+      "net_sharpe_annualized": 1.634,
+      "avg_position_size": 0.023
+    }
   },
   "stock_summaries": [
     {
       "label": "0700.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.7979,
-      "rmse": 8.22,
-      "mean_abs_error_pct": 1.31,
+      "directional_accuracy": 0.7766,
+      "rmse": 8.1,
+      "mean_abs_error_pct": 1.303,
       "pred_range_coverage_pct": null,
-      "rolling_5d_accuracy_latest": 0.4,
-      "below_random_warning": false
+      "rolling_5d_accuracy_latest": 0.8,
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 80,
+        "gross_cumulative_return_pct": 1028.87,
+        "net_cumulative_return_pct": -0.16,
+        "buy_hold_cumulative_return_pct": -33.74,
+        "total_cost_pct": 1.47,
+        "net_sharpe_annualized": -0.659,
+        "avg_position_size": 0.005
+      }
     },
     {
       "label": "9988.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
       "directional_accuracy": 0.8298,
-      "rmse": 2.55,
-      "mean_abs_error_pct": 1.547,
+      "rmse": 2.56,
+      "mean_abs_error_pct": 1.565,
       "pred_range_coverage_pct": null,
-      "rolling_5d_accuracy_latest": 0.6,
-      "below_random_warning": false
+      "rolling_5d_accuracy_latest": 1.0,
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 87,
+        "gross_cumulative_return_pct": 3229.76,
+        "net_cumulative_return_pct": -2.93,
+        "buy_hold_cumulative_return_pct": -29.8,
+        "total_cost_pct": 5.04,
+        "net_sharpe_annualized": -6.841,
+        "avg_position_size": 0.006
+      }
     },
     {
       "label": "0941.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.6277,
-      "rmse": 0.53,
-      "mean_abs_error_pct": 0.477,
+      "directional_accuracy": 0.6436,
+      "rmse": 0.52,
+      "mean_abs_error_pct": 0.476,
       "pred_range_coverage_pct": null,
       "rolling_5d_accuracy_latest": 0.4,
-      "below_random_warning": false
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 60,
+        "gross_cumulative_return_pct": 90.67,
+        "net_cumulative_return_pct": -4.73,
+        "buy_hold_cumulative_return_pct": -4.73,
+        "total_cost_pct": 5.22,
+        "net_sharpe_annualized": -9.483,
+        "avg_position_size": 0.007
+      }
     },
     {
       "label": "1299.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.6968,
-      "rmse": 1.28,
-      "mean_abs_error_pct": 1.172,
+      "directional_accuracy": 0.7287,
+      "rmse": 1.25,
+      "mean_abs_error_pct": 1.144,
       "pred_range_coverage_pct": null,
       "rolling_5d_accuracy_latest": 0.4,
-      "below_random_warning": false
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 86,
+        "gross_cumulative_return_pct": 773.94,
+        "net_cumulative_return_pct": -6.21,
+        "buy_hold_cumulative_return_pct": -17.41,
+        "total_cost_pct": 7.69,
+        "net_sharpe_annualized": -11.758,
+        "avg_position_size": 0.005
+      }
     },
     {
       "label": "0388.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.7872,
-      "rmse": 4.55,
+      "directional_accuracy": 0.766,
+      "rmse": 4.5,
       "mean_abs_error_pct": 0.87,
       "pred_range_coverage_pct": null,
-      "rolling_5d_accuracy_latest": 0.4,
-      "below_random_warning": false
+      "rolling_5d_accuracy_latest": 0.6,
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 66,
+        "gross_cumulative_return_pct": 334.2,
+        "net_cumulative_return_pct": -0.51,
+        "buy_hold_cumulative_return_pct": -9.81,
+        "total_cost_pct": 1.38,
+        "net_sharpe_annualized": -3.526,
+        "avg_position_size": 0.005
+      }
     },
     {
       "label": "3690.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.766,
-      "rmse": 1.67,
-      "mean_abs_error_pct": 1.493,
+      "directional_accuracy": 0.7766,
+      "rmse": 1.66,
+      "mean_abs_error_pct": 1.471,
       "pred_range_coverage_pct": null,
-      "rolling_5d_accuracy_latest": 0.6,
-      "below_random_warning": false
+      "rolling_5d_accuracy_latest": 0.8,
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 94,
+        "gross_cumulative_return_pct": 1802.07,
+        "net_cumulative_return_pct": -6.22,
+        "buy_hold_cumulative_return_pct": -33.56,
+        "total_cost_pct": 8.09,
+        "net_sharpe_annualized": -10.671,
+        "avg_position_size": 0.005
+      }
     },
     {
       "label": "0005.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.7553,
-      "rmse": 2.01,
-      "mean_abs_error_pct": 1.011,
+      "directional_accuracy": 0.7766,
+      "rmse": 2.02,
+      "mean_abs_error_pct": 1.034,
       "pred_range_coverage_pct": null,
-      "rolling_5d_accuracy_latest": 0.6,
-      "below_random_warning": false
+      "rolling_5d_accuracy_latest": 1.0,
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 96,
+        "gross_cumulative_return_pct": 707.27,
+        "net_cumulative_return_pct": -3.39,
+        "buy_hold_cumulative_return_pct": 14.8,
+        "total_cost_pct": 4.88,
+        "net_sharpe_annualized": -9.903,
+        "avg_position_size": 0.007
+      }
     },
     {
       "label": "1810.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.8457,
+      "directional_accuracy": 0.8298,
       "rmse": 0.57,
-      "mean_abs_error_pct": 1.446,
+      "mean_abs_error_pct": 1.455,
       "pred_range_coverage_pct": null,
       "rolling_5d_accuracy_latest": 0.8,
-      "below_random_warning": false
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 77,
+        "gross_cumulative_return_pct": 2549.02,
+        "net_cumulative_return_pct": -14.67,
+        "buy_hold_cumulative_return_pct": -41.21,
+        "total_cost_pct": 17.64,
+        "net_sharpe_annualized": -11.703,
+        "avg_position_size": 0.004
+      }
     },
     {
       "label": "2318.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.7766,
-      "rmse": 0.88,
-      "mean_abs_error_pct": 1.04,
+      "directional_accuracy": 0.7713,
+      "rmse": 0.89,
+      "mean_abs_error_pct": 1.056,
       "pred_range_coverage_pct": null,
-      "rolling_5d_accuracy_latest": 0.6,
-      "below_random_warning": false
+      "rolling_5d_accuracy_latest": 0.8,
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 76,
+        "gross_cumulative_return_pct": 529.53,
+        "net_cumulative_return_pct": -7.43,
+        "buy_hold_cumulative_return_pct": -23.05,
+        "total_cost_pct": 8.74,
+        "net_sharpe_annualized": -11.247,
+        "avg_position_size": 0.006
+      }
     },
     {
       "label": "0016.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.8298,
-      "rmse": 1.84,
-      "mean_abs_error_pct": 1.109,
+      "directional_accuracy": 0.8351,
+      "rmse": 1.82,
+      "mean_abs_error_pct": 1.098,
       "pred_range_coverage_pct": null,
       "rolling_5d_accuracy_latest": 1.0,
-      "below_random_warning": false
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 68,
+        "gross_cumulative_return_pct": 1214.36,
+        "net_cumulative_return_pct": -2.25,
+        "buy_hold_cumulative_return_pct": 10.25,
+        "total_cost_pct": 4.0,
+        "net_sharpe_annualized": -5.762,
+        "avg_position_size": 0.006
+      }
     },
     {
       "label": "0027.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
       "directional_accuracy": 0.6649,
-      "rmse": 0.55,
-      "mean_abs_error_pct": 1.214,
+      "rmse": 0.54,
+      "mean_abs_error_pct": 1.21,
       "pred_range_coverage_pct": null,
-      "rolling_5d_accuracy_latest": 1.0,
-      "below_random_warning": false
+      "rolling_5d_accuracy_latest": 0.8,
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 77,
+        "gross_cumulative_return_pct": 340.68,
+        "net_cumulative_return_pct": -13.58,
+        "buy_hold_cumulative_return_pct": -20.91,
+        "total_cost_pct": 15.4,
+        "net_sharpe_annualized": -12.151,
+        "avg_position_size": 0.006
+      }
     },
     {
       "label": "0883.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.8085,
-      "rmse": 0.42,
-      "mean_abs_error_pct": 1.328,
+      "directional_accuracy": 0.7819,
+      "rmse": 0.41,
+      "mean_abs_error_pct": 1.302,
       "pred_range_coverage_pct": null,
       "rolling_5d_accuracy_latest": 0.8,
-      "below_random_warning": false
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 70,
+        "gross_cumulative_return_pct": 1169.23,
+        "net_cumulative_return_pct": -16.06,
+        "buy_hold_cumulative_return_pct": 9.61,
+        "total_cost_pct": 19.18,
+        "net_sharpe_annualized": -10.867,
+        "avg_position_size": 0.006
+      }
     },
     {
       "label": "1398.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.7766,
+      "directional_accuracy": 0.7553,
       "rmse": 0.08,
-      "mean_abs_error_pct": 0.865,
+      "mean_abs_error_pct": 0.854,
       "pred_range_coverage_pct": null,
       "rolling_5d_accuracy_latest": 0.6,
-      "below_random_warning": false
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 87,
+        "gross_cumulative_return_pct": 365.44,
+        "net_cumulative_return_pct": -56.87,
+        "buy_hold_cumulative_return_pct": 19.79,
+        "total_cost_pct": 84.76,
+        "net_sharpe_annualized": -14.178,
+        "avg_position_size": 0.007
+      }
     },
     {
       "label": "3988.HK",
@@ -162,32 +302,62 @@
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
       "directional_accuracy": 0.6755,
       "rmse": 0.06,
-      "mean_abs_error_pct": 0.819,
+      "mean_abs_error_pct": 0.798,
       "pred_range_coverage_pct": null,
       "rolling_5d_accuracy_latest": 0.6,
-      "below_random_warning": false
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 79,
+        "gross_cumulative_return_pct": 271.81,
+        "net_cumulative_return_pct": -64.33,
+        "buy_hold_cumulative_return_pct": 33.11,
+        "total_cost_pct": 103.4,
+        "net_sharpe_annualized": -13.069,
+        "avg_position_size": 0.008
+      }
     },
     {
       "label": "0002.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.6809,
+      "directional_accuracy": 0.6862,
       "rmse": 0.54,
-      "mean_abs_error_pct": 0.566,
+      "mean_abs_error_pct": 0.568,
       "pred_range_coverage_pct": null,
       "rolling_5d_accuracy_latest": 0.6,
-      "below_random_warning": false
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 92,
+        "gross_cumulative_return_pct": 116.43,
+        "net_cumulative_return_pct": -7.75,
+        "buy_hold_cumulative_return_pct": 8.15,
+        "total_cost_pct": 8.6,
+        "net_sharpe_annualized": -13.995,
+        "avg_position_size": 0.007
+      }
     },
     {
       "label": "0001.HK",
       "n_days": 188,
       "date_range": "2026-01-02 00:00:00 to 2026-10-07 00:00:00",
-      "directional_accuracy": 0.734,
-      "rmse": 0.89,
-      "mean_abs_error_pct": 1.016,
+      "directional_accuracy": 0.7447,
+      "rmse": 0.9,
+      "mean_abs_error_pct": 1.021,
       "pred_range_coverage_pct": null,
       "rolling_5d_accuracy_latest": 0.8,
-      "below_random_warning": false
+      "below_random_warning": false,
+      "cost_adjusted": {
+        "n_days": 188,
+        "n_trades": 83,
+        "gross_cumulative_return_pct": 512.36,
+        "net_cumulative_return_pct": -7.27,
+        "buy_hold_cumulative_return_pct": 22.69,
+        "total_cost_pct": 8.84,
+        "net_sharpe_annualized": -11.589,
+        "avg_position_size": 0.006
+      }
     }
   ]
 }
