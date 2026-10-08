@@ -100,6 +100,15 @@ jobs:
           git pull --rebase origin main
           git push
 
+      - name: Generate and send dashboard report
+        working-directory: src
+        env:
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          DASHBOARD_ENABLED: ${{ vars.DASHBOARD_ENABLED }}
+        run: python dashboard_report.py
+
       - name: Send email report
         working-directory: src
         env:
