@@ -1,5 +1,6 @@
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
+import pandas_market_calendars as mcal
 
 HKT = ZoneInfo("Asia/Hong_Kong")
 
@@ -40,3 +41,20 @@ def get_latest_usable_row(df, now=None):
     if session in ("pre_market", "intraday") and last_date == today:
         df = df.iloc[:-1]          # 用返「前收」(上個完整交易日)
     return df, session
+
+_hkex_calendar = mcal.get_calendar("HKEX")
+
+
+def get_next_trading_day(from_date):
+    """
+    動態計算下一個 HKEX 交易日，自動跳過週末及公眾假期。
+    毋須手動維護年度假期清單，pandas_market_calendars 內建香港交易所日曆。
+    """
+    if isinstance(from_date, str):
+        from_date = datetime.strptime(from_date, "%Y-%m-%d").date()
+
+    schedule = _hkex_calendar.schedule(
+        start_date=from_date + timedelta(days=1),
+        end_date=from_date + timedelta(days=14)
+    )
+    return schedule.index[0].date()
