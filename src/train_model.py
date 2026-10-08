@@ -41,8 +41,8 @@ from optuna_tuning import run_optuna_search
 from walk_forward import should_retrain, mark_trained_today, expanding_window_validation
 from regime import detect_regime
 from threshold_calibrator import RegimeThresholdCalibrator
-from gap_estimator import calibrate_gap_model
-from macro_features import get_market_overnight_return_history  # 改名修正
+# from gap_estimator import calibrate_gap_model
+# from macro_features import get_market_overnight_return_history  # 改名修正
 
 # ---------------------------------------------------------------------------
 # Dataset construction
@@ -158,14 +158,14 @@ def train_hsi_models():
     with open(FEATURE_LIST_PATH, "w") as f:
         json.dump(feature_cols, f)
 
-    print("=== [Step 7b] Training OPEN-BASED High / Low regressors (ENH#2) ===")
+    # print("=== [Step 7b] Training OPEN-BASED High / Low regressors (ENH#2) ===")
     # 需要原始 OHLC 數據（labeled_df 已經有 Open/High/Low/Close），重新做 open-based labeling
-    raw_for_open_label = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
-    feat_df_for_open = build_features(raw_for_open_label, us_futures=fetch_with_fallback(US_FUTURES_TICKER),
-                                        vix=fetch_with_fallback(VIX_TICKER), ccass_change=0.0,
-                                        market_sentiment=get_daily_market_sentiment(), stock_sentiment=0.0,
-                                        ticker=HSI_TICKER, include_macro=True)
-    labeled_open_df = build_nextday_labels_open_based(feat_df_for_open)
+    # raw_for_open_label = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
+    # feat_df_for_open = build_features(raw_for_open_label, us_futures=fetch_with_fallback(US_FUTURES_TICKER),
+    #                                    vix=fetch_with_fallback(VIX_TICKER), ccass_change=0.0,
+    #                                    market_sentiment=get_daily_market_sentiment(), stock_sentiment=0.0,
+    #                                    ticker=HSI_TICKER, include_macro=True)
+    # labeled_open_df = build_nextday_labels_open_based(feat_df_for_open)
     
     # 對齊同一組特徵欄位（同 close-based 模型共用 feature_cols）
     for col in feature_cols:
@@ -222,19 +222,19 @@ def train_hsi_models():
     # ═══════════════════════════════════════════════════════════
     # <<< 新增 Step 11 要插入喺呢度 >>>
     # ═══════════════════════════════════════════════════════════
-    print("=== [Step 11] Calibrating overnight gap estimation model ===")
-    raw_hsi_for_gap = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
-    if isinstance(raw_hsi_for_gap.columns, pd.MultiIndex):
-      raw_hsi_for_gap.columns = [c[0] for c in raw_hsi_for_gap.columns]
-    us_overnight_history = get_market_overnight_return_history(
-        start_date=str(raw_hsi_for_gap.index.min().date()),
-        end_date=str(raw_hsi_for_gap.index.max().date())
-    )
-    print(raw_hsi_for_gap.columns.tolist())
-    print("Is MultiIndex:", isinstance(raw_hsi_for_gap.columns, pd.MultiIndex))
-    print("Has duplicates:", raw_hsi_for_gap.columns.duplicated().any())
+    # print("=== [Step 11] Calibrating overnight gap estimation model ===")
+    # raw_hsi_for_gap = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
+    # if isinstance(raw_hsi_for_gap.columns, pd.MultiIndex):
+    #   raw_hsi_for_gap.columns = [c[0] for c in raw_hsi_for_gap.columns]
+    # us_overnight_history = get_market_overnight_return_history(
+    #     start_date=str(raw_hsi_for_gap.index.min().date()),
+    #     end_date=str(raw_hsi_for_gap.index.max().date())
+    # )
+    # print(raw_hsi_for_gap.columns.tolist())
+    # print("Is MultiIndex:", isinstance(raw_hsi_for_gap.columns, pd.MultiIndex))
+    # print("Has duplicates:", raw_hsi_for_gap.columns.duplicated().any())
 
-    gap_calibration = calibrate_gap_model(raw_hsi_for_gap, us_overnight_history, min_samples=60)
+    # gap_calibration = calibrate_gap_model(raw_hsi_for_gap, us_overnight_history, min_samples=60)
     # ═══════════════════════════════════════════════════════════
 
 
@@ -244,7 +244,7 @@ def train_hsi_models():
         "walk_forward_report": wf_report,
         "retrain_trigger_status": retrain_status,
         "regime_threshold_calibration": threshold_report,
-        "gap_calibration": gap_calibration,          # <-- 順便加呢行，記錄入 metrics.json
+        # "gap_calibration": gap_calibration,          # <-- 順便加呢行，記錄入 metrics.json
         "n_samples": int(len(X)),
         "n_features": len(feature_cols),
         "date_range": {"start": str(labeled_df.index.min()), "end": str(labeled_df.index.max())},
