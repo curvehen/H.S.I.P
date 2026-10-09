@@ -19,21 +19,24 @@ import datetime
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
+import os
 
 from config import (MODEL_CLOSE_Q10_PATH, MODEL_CLOSE_Q50_PATH, MODEL_CLOSE_Q90_PATH,
                      MODEL_HIGH_PATH, MODEL_LOW_PATH, FEATURE_LIST_PATH, PRED_LOG_PATH,
                      STOCK_MODEL_DIR, HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER,
                      MIN_EXPECTED_MOVE_PCT, MIN_CONFIDENCE, HSI_PROB_MODEL_PATH,
-                     stock_prob_model_path, stock_high_model_path, stock_low_model_path)
+                     stock_prob_model_path, stock_high_model_path, stock_low_model_path, 
+                     SNAPSHOT_DIR, LATEST_RESULT_PATH, LLM_ENABLED_RUN_MODES)
 from data_sources import fetch_with_fallback
 from features import build_features
 from labeling import LABEL_COLUMNS
 from confidence import load_meta_model, get_signal_confidence
 from news_sentiment import get_daily_market_sentiment, get_stock_sentiment
-from stock_universe import get_universe, get_stock_info
+from stock_universe import get_universe, get_all_tracked_tickers, get_stock_info, is_hsi_constituent
 from ensemble_model import HSIEnsembleModel
 from regime import detect_regime
 from probability_model import load_probability_model, predict_probability_up, classify_signal_strength
+from llm_analysis import generate_market_commentary
 from hit_rate_tracker import get_hit_rate
 from ccass_scraper import get_ccass_change
 from data_sources import to_stooq_hk_code
@@ -237,11 +240,14 @@ def predict_single_stock(ticker: str):
 
 
 def predict_all_stocks():
-    universe = get_universe()
+    # universe = get_universe()
+    # HSI 成份股 + 觀察名單（1211.HK, 968.HK 等），不影響 predict_hsi_bottom_up()
+    tracked = get_all_tracked_tickers()
     results = []
-    for ticker in universe:
+    for ticker in tracked:
         r = predict_single_stock(ticker)
         if r is not None:
+            r["is_constituent"] = is_hsi_constituent(ticker)
             results.append(r)
     return results
 
@@ -257,8 +263,33 @@ def is_worth_trading(predicted_close_return: float, confidence: float) -> dict:
     return {"worth_trading": worth_it, "reason": reason}
 
 
-def predict_today():
+def _snapshot_path(target_trading_date: str):
+    return SNAPSHOT_DIR / f"snapshot_{target_trading_date}.json"
+  
+def predict_today(run_mode: str = "preliminary"):
+    """
+    run_mode:
+      - "official"    : 凌晨 4:00am HKT 排程專用。抓即時數據、產生 LLM 摘要、
+                         寫入 snapshot，並准許寫入 predictions_log.csv。
+      - "preliminary" : 晚上 7:00pm HKT 排程專用。若當日 snapshot 已存在
+                         （即 official 已跑過），直接讀 snapshot 保證一致；
+                         否則抓即時數據，但結果標記為非正式，不寫入任何 log，
+                         亦不觸發 LLM（省成本）。
+    """
     hsi = predict_hsi()
+    target_date = hsi["target_trading_date"]
+    snap_path = _snapshot_path(target_date)
+
+    # 若 official run 已經為呢個 target_trading_date 產生過 snapshot，
+    # 一律讀返 snapshot，確保同一交易日任何時間 re-run 都得出完全相同結果。
+    if snap_path.exists():
+        with open(snap_path) as f:
+            cached = json.load(f)
+        cached["_is_cached_snapshot"] = True
+        cached["_run_mode"] = run_mode
+        return cached
+      
+
     bottom_up = predict_hsi_bottom_up()
 
     has_good_coverage = bottom_up["coverage_weight"] > 0.3
@@ -324,7 +355,21 @@ def predict_today():
         "actual_close": None,
         "directional_hit": None,
         "_stock_predictions": stock_predictions,
+        "_run_mode": run_mode,
+        "_is_cached_snapshot": False,
     }
+
+    # LLM 綜合分析：只喺 official run 先觸發，preliminary 唔叫 API（省成本），
+    # 且任何對 DashScope 嘅呼叫失敗都已經喺 llm_analysis.py 內部 fail-safe 處理。
+    if run_mode in LLM_ENABLED_RUN_MODES:
+        result["llm_commentary"] = generate_market_commentary(result)
+    else:
+        result["llm_commentary"] = None
+
+    if run_mode == "official":
+        with open(snap_path, "w") as f:
+            json.dump(result, f, indent=2, default=str)
+
     return result
 
 
@@ -332,8 +377,12 @@ def append_to_log(result: dict):
     # calibrated_signal_thresholds is a nested dict — exclude it from the flat
     # CSV log row (same underscore convention as _stock_predictions), but keep
     # it in the JSON output / email report via the full result dict.
+    # calibrated_signal_thresholds (nested dict) 同 llm_commentary（長文字）
+    # 都唔適合落 CSV flat row，一律排除，JSON/email 層面仍會用完整 result。
+  
     flat_result = {k: v for k, v in result.items()
-                    if not k.startswith("_") and k != "calibrated_signal_thresholds"}
+                    if not k.startswith("_") and k not in ("calibrated_signal_thresholds", "llm_commentary")}
+                  }
     row = pd.DataFrame([flat_result])
     if PRED_LOG_PATH.exists():
         log = pd.read_csv(PRED_LOG_PATH)
@@ -344,8 +393,27 @@ def append_to_log(result: dict):
 
 
 if __name__ == "__main__":
-    result = predict_today()
-    append_to_log(result)
+    # result = predict_today()
+    # append_to_log(result)
+    
+    run_mode = os.environ.get("RUN_MODE", "preliminary")
+    result = predict_today(run_mode=run_mode)
+
+    # 只有「official 且非 cached snapshot」（即今日第一次正式 run）先寫入
+    # predictions_log.csv，避免同一交易日 official 被重複觸發時產生重複紀錄。
+    if run_mode == "official" and not result.get("_is_cached_snapshot"):
+        append_to_log(result)
+
+    # 無論 preliminary 定 official，都將完整結果落盤，
+    # 畀同一次 workflow 入面嘅 signal_generator.py / email_report.py
+    # 直接讀用，杜絕重複 call predict_today() 攞到唔同即時數據嘅問題。
+    with open(LATEST_RESULT_PATH, "w") as f:
+        json.dump(result, f, indent=2, default=str)
+
+
+
+
+
     print(json.dumps({k: v for k, v in result.items() if k != "_stock_predictions"},
                       indent=2, default=str))
     print(f"\n個股預測數量: {len(result['_stock_predictions'])}")
