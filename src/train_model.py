@@ -13,10 +13,13 @@ Full pipeline:
 8. Train standalone quantile models (q10/q50/q90) for close band
 9. Train direct High / Low regressors
 10. Train Meta-Labeling (confidence) model
-11. Train HSI probability model (P升/P跌)
-12. Calibrate regime-based long/short probability thresholds (F1-optimized)
-13. Train per-stock bottom-up models (close q50)
-14. Save everything + metrics.json + mark_trained_today()
+11. Train HSI probability model (P-up/P-down)
+12. Generate Purged-K-Fold out-of-fold predictions + regime tags, fit
+    regime-specific F1-optimized trading thresholds (ENH#1)
+13. Initialize rolling-Brier-score dynamic ensemble weights file (ENH#2 seed)
+14. Train per-stock bottom-up models for ALL tracked tickers
+    (HSI constituents + watchlist, e.g. 1211.HK / 0968.HK)
+15. Save everything + metrics.json + mark_trained_today()
 """
 
 import json
@@ -24,25 +27,35 @@ import datetime
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
+from sklearn.ensemble import RandomForestClassifier
 
 from config import (MODEL_CLOSE_Q10_PATH, MODEL_CLOSE_Q50_PATH, MODEL_CLOSE_Q90_PATH,
                      MODEL_HIGH_PATH, MODEL_LOW_PATH, FEATURE_LIST_PATH, METRICS_PATH,
                      STOCK_MODEL_DIR, HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER,
-                     LGB_PARAMS, MODEL_OPEN_HIGH_PATH, MODEL_OPEN_LOW_PATH)
-from data_sources import fetch_with_fallback
+                     LGB_PARAMS, MODEL_DIR, PURGE_EMBARGO_DAYS)
+from data_sources import fetch_with_fallback, to_stooq_hk_code
 from features import build_features, get_numeric_feature_columns
-from labeling import build_nextday_labels, LABEL_COLUMNS, build_nextday_labels_open_based
+from labeling import build_nextday_labels, LABEL_COLUMNS
 from confidence import build_meta_labels, train_meta_model
 from news_sentiment import get_daily_market_sentiment, get_stock_sentiment
 from ccass_scraper import get_ccass_change
-from stock_universe import get_universe
+from stock_universe import get_universe, get_all_tracked_tickers, is_hsi_constituent
 from ensemble_model import HSIEnsembleModel
-from optuna_tuning import run_optuna_search
+from optuna_tuning import run_optuna_search, purged_kfold_indices
 from walk_forward import should_retrain, mark_trained_today, expanding_window_validation
-from regime import detect_regime
-from threshold_calibrator import RegimeThresholdCalibrator
-# from gap_estimator import calibrate_gap_model
-# from macro_features import get_market_overnight_return_history  # 改名修正
+
+# NOTE: the following two modules implement features discussed and designed
+# earlier in this project but have not yet been written as standalone files.
+# This script calls their intended public interface; it will raise
+# ImportError until those files exist. See the confirmation note at the end
+# of this message.
+from threshold_calibrator import fit_and_save_regime_thresholds      # ENH#1 (TODO: not yet delivered)
+from dynamic_ensemble_weighter import init_dynamic_weights           # ENH#2 (TODO: not yet delivered)
+
+
+DYNAMIC_WEIGHTS_SEED_PATH = MODEL_DIR / "dynamic_ensemble_weights.json"
+REGIME_THRESHOLDS_PATH = MODEL_DIR / "regime_thresholds.json"
+
 
 # ---------------------------------------------------------------------------
 # Dataset construction
@@ -62,282 +75,277 @@ def build_labeled_hsi_dataset():
     return labeled_df
 
 
-def tag_historical_regimes(feat_df: pd.DataFrame) -> pd.Series:
-    """
-    Vectorized version of regime.py's detect_regime(), applied to every
-    historical row (not just the latest), so each training sample can be
-    tagged with the regime that was in effect on that day. This mirrors
-    detect_regime()'s exact BULL/BEAR/NEUTRAL logic row-by-row, so results
-    are fully consistent with what predict.py reports live.
-    """
-    close = feat_df["Close"]
-    ma20 = feat_df.get("MA20")
-    ma60 = feat_df.get("MA60")
+# ---------------------------------------------------------------------------
+# Regime tagging (vectorized version of regime.py's row-wise detect_regime,
+# needed here to tag an entire historical dataframe for threshold
+# calibration — regime.py itself only evaluates the single latest row).
+# ---------------------------------------------------------------------------
 
-    if ma20 is None or ma60 is None:
-        return pd.Series("NEUTRAL", index=feat_df.index)
-
+def compute_regime_series(feat_df: pd.DataFrame) -> pd.Series:
+    """Vectorized BULL/BEAR/NEUTRAL tagging across full history, using the
+    same Close vs MA20/MA60 logic as regime.detect_regime()."""
+    close, ma20, ma60 = feat_df["Close"], feat_df["MA20"], feat_df["MA60"]
     regime = pd.Series("NEUTRAL", index=feat_df.index)
-    valid = ma20.notna() & ma60.notna()
-
-    bull_mask = valid & (close > ma60) & (ma20 > ma60)
-    bear_mask = valid & (close < ma60) & (ma20 < ma60)
-
+    bull_mask = (close > ma60) & (ma20 > ma60)
+    bear_mask = (close < ma60) & (ma20 < ma60)
     regime[bull_mask] = "BULL"
     regime[bear_mask] = "BEAR"
     return regime
 
 
 # ---------------------------------------------------------------------------
-# HSI-level model training
+# Out-of-fold predictions for regime-threshold calibration (ENH#1)
 # ---------------------------------------------------------------------------
 
-def train_hsi_models():
-    print("=== [Step 1] Checking walk-forward retrain trigger (informational) ===")
-    retrain_status = should_retrain()
-    print(json.dumps(retrain_status, indent=2))
+def generate_oof_predictions(X: pd.DataFrame, y_close: pd.Series, feat_df: pd.DataFrame,
+                              best_params: dict, n_splits: int = 5) -> pd.DataFrame:
+    """
+    Builds out-of-fold (Purged K-Fold) primary return predictions AND
+    out-of-fold meta-confidence scores, so that threshold calibration is
+    evaluated on predictions the model never saw during its own fold's
+    training — mirroring live inference honestly instead of calibrating
+    thresholds on in-sample fitted values (which would be overly optimistic).
 
-    print("=== [Step 2] Building HSI dataset (features + next-day labels) ===")
-    labeled_df = build_labeled_hsi_dataset()
+    Each fold trains its own throwaway primary regressor + meta classifier
+    on that fold's training split only; neither model is persisted, they
+    exist purely to produce honest OOF confidence/return estimates.
+    """
+    oof_pred = pd.Series(index=X.index, dtype=float)
+    oof_confidence = pd.Series(index=X.index, dtype=float)
 
-    feature_cols = get_numeric_feature_columns(labeled_df, exclude=LABEL_COLUMNS)
-    X = labeled_df[feature_cols]
-    y_close = labeled_df["next_close_return"]
-    y_high = labeled_df["next_high_return"]
-    y_low = labeled_df["next_low_return"]
+    for train_idx, test_idx in purged_kfold_indices(len(X), n_splits=n_splits, embargo=PURGE_EMBARGO_DAYS):
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train = y_close.iloc[train_idx]
 
-    print(f"Dataset ready: {len(X)} samples, {len(feature_cols)} features")
+        fold_model = lgb.LGBMRegressor(**best_params)
+        fold_model.fit(X_train, y_train)
+        fold_pred = fold_model.predict(X_test)
+        oof_pred.iloc[test_idx] = fold_pred
 
-    print("=== [Step 3] Optuna hyperparameter search (close target) ===")
-    best_params = run_optuna_search(X, y_close)
+        # Fold-local meta-label + meta-model, purely for honest OOF confidence
+        fold_meta_labels = build_meta_labels(
+            pred_returns=pd.Series(fold_model.predict(X_train), index=X_train.index),
+            actual_returns=y_train)
+        fold_meta_model = train_meta_model(X_train, fold_meta_labels)
+        if fold_meta_model is not None:
+            oof_confidence.iloc[test_idx] = fold_meta_model.predict_proba(X_test)[:, 1]
+        else:
+            oof_confidence.iloc[test_idx] = 0.5  # neutral fallback if a fold has no valid labels
 
-    print("=== [Step 4] Expanding-window walk-forward validation (tuned params) ===")
-    def model_fn(X_tr, y_tr):
-        m = lgb.LGBMRegressor(objective="regression", **best_params)
-        m.fit(X_tr, y_tr)
-        return m
+    oof_df = pd.DataFrame({
+        "date": feat_df.index,
+        "regime": compute_regime_series(feat_df).values,
+        "actual_return": y_close.values,
+        "pred_return": oof_pred.values,
+        "confidence": oof_confidence.values,
+    }).dropna(subset=["pred_return"])
 
-    wf_report = expanding_window_validation(X, y_close, model_fn, n_windows=5)
-    print("Walk-forward validation report:")
-    print(json.dumps(wf_report, indent=2))
-
-    print("=== [Step 5] Training Ensemble model (close) ===")
-    split_idx = int(len(X) * 0.85)
-    X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
-    y_train, y_val = y_close.iloc[:split_idx], y_close.iloc[split_idx:]
-
-    ensemble = HSIEnsembleModel(lgb_params=best_params)
-    ensemble_report = ensemble.fit(X_train, y_train, X_val, y_val)
-    print("Ensemble weights:", ensemble_report["weights"])
-    ensemble.save(prefix="hsi")
-
-    print("=== [Step 6] Training quantile models (close q10/q50/q90) ===")
-    def train_quantile(y, alpha):
-        params = {k: v for k, v in best_params.items()}
-        m = lgb.LGBMRegressor(objective="quantile", alpha=alpha, **params)
-        m.fit(X, y)
-        return m
-
-    model_close_q10 = train_quantile(y_close, 0.1)
-    model_close_q50 = train_quantile(y_close, 0.5)
-    model_close_q90 = train_quantile(y_close, 0.9)
-
-    model_close_q10.booster_.save_model(str(MODEL_CLOSE_Q10_PATH))
-    model_close_q50.booster_.save_model(str(MODEL_CLOSE_Q50_PATH))
-    model_close_q90.booster_.save_model(str(MODEL_CLOSE_Q90_PATH))
-
-    print("=== [Step 7] Training direct High / Low regressors ===")
-    model_high = lgb.LGBMRegressor(objective="regression", **best_params)
-    model_high.fit(X, y_high)
-    model_high.booster_.save_model(str(MODEL_HIGH_PATH))
-
-    model_low = lgb.LGBMRegressor(objective="regression", **best_params)
-    model_low.fit(X, y_low)
-    model_low.booster_.save_model(str(MODEL_LOW_PATH))
-
-    with open(FEATURE_LIST_PATH, "w") as f:
-        json.dump(feature_cols, f)
-
-    # print("=== [Step 7b] Training OPEN-BASED High / Low regressors (ENH#2) ===")
-    # 需要原始 OHLC 數據（labeled_df 已經有 Open/High/Low/Close），重新做 open-based labeling
-    # raw_for_open_label = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
-    # feat_df_for_open = build_features(raw_for_open_label, us_futures=fetch_with_fallback(US_FUTURES_TICKER),
-    #                                    vix=fetch_with_fallback(VIX_TICKER), ccass_change=0.0,
-    #                                    market_sentiment=get_daily_market_sentiment(), stock_sentiment=0.0,
-    #                                    ticker=HSI_TICKER, include_macro=True)
-    # labeled_open_df = build_nextday_labels_open_based(feat_df_for_open)
-    
-    # 對齊同一組特徵欄位（同 close-based 模型共用 feature_cols）
-    for col in feature_cols:
-        if col not in labeled_open_df.columns:
-            labeled_open_df[col] = 0
-    X_open = labeled_open_df[feature_cols].astype(float)
-    y_high_open = labeled_open_df["next_high_return_open"]
-    y_low_open = labeled_open_df["next_low_return_open"]
-    
-    model_high_open = lgb.LGBMRegressor(objective="regression", **best_params)
-    model_high_open.fit(X_open, y_high_open)
-    model_high_open.booster_.save_model(str(MODEL_OPEN_HIGH_PATH))
-    
-    model_low_open = lgb.LGBMRegressor(objective="regression", **best_params)
-    model_low_open.fit(X_open, y_low_open)
-    model_low_open.booster_.save_model(str(MODEL_OPEN_LOW_PATH))
-
-    print("=== [Step 8] Training Meta-Labeling (confidence) model ===")
-    primary_pred = model_close_q50.predict(X)
-    meta_labels = build_meta_labels(pd.Series(primary_pred, index=X.index), y_close)
-    train_meta_model(X, meta_labels)
-
-    print("=== [Step 9] Training HSI probability model (P升/P跌) ===")
-    from probability_model import train_probability_model
-    from config import HSI_PROB_MODEL_PATH
-    prob_clf = train_probability_model(X, y_close, HSI_PROB_MODEL_PATH)
-
-    print("=== [Step 10] Calibrating regime-based long/short thresholds (F1-optimized) ===")
-    # Tag every historical row with its regime (vectorized, matches regime.py logic)
-    regime_series = tag_historical_regimes(labeled_df)
-
-    # Build a held-out validation slice (last 15%, same split philosophy as the
-    # ensemble's own validation set) to calibrate thresholds on unseen-ish data
-    # rather than in-sample predictions, reducing overfit risk.
-    calib_split_idx = int(len(X) * 0.85)
-    X_calib = X.iloc[calib_split_idx:]
-    y_calib_actual_return = y_close.iloc[calib_split_idx:]
-    regime_calib = regime_series.iloc[calib_split_idx:]
-
-    calib_probs = prob_clf.predict_proba(X_calib)[:, 1] if prob_clf is not None else np.full(len(X_calib), 0.5)
-    actual_direction = (y_calib_actual_return > 0).astype(int)
-
-    calib_df = pd.DataFrame({
-        "p_up": calib_probs,
-        "actual_direction": actual_direction.values,
-        "regime": regime_calib.values,
-    }, index=X_calib.index)
-
-    calibrator = RegimeThresholdCalibrator()
-    calibrator.calibrate(calib_df, prob_col="p_up", target_col="actual_direction", regime_col="regime")
-    calibrator.save()
-    threshold_report = calibrator.thresholds
-
-    # ═══════════════════════════════════════════════════════════
-    # <<< 新增 Step 11 要插入喺呢度 >>>
-    # ═══════════════════════════════════════════════════════════
-    # print("=== [Step 11] Calibrating overnight gap estimation model ===")
-    # raw_hsi_for_gap = fetch_with_fallback(HSI_TICKER, stooq_ticker="^hsi")
-    # if isinstance(raw_hsi_for_gap.columns, pd.MultiIndex):
-    #   raw_hsi_for_gap.columns = [c[0] for c in raw_hsi_for_gap.columns]
-    # us_overnight_history = get_market_overnight_return_history(
-    #     start_date=str(raw_hsi_for_gap.index.min().date()),
-    #     end_date=str(raw_hsi_for_gap.index.max().date())
-    # )
-    # print(raw_hsi_for_gap.columns.tolist())
-    # print("Is MultiIndex:", isinstance(raw_hsi_for_gap.columns, pd.MultiIndex))
-    # print("Has duplicates:", raw_hsi_for_gap.columns.duplicated().any())
-
-    # gap_calibration = calibrate_gap_model(raw_hsi_for_gap, us_overnight_history, min_samples=60)
-    # ═══════════════════════════════════════════════════════════
-
-
-    return {
-        "best_hyperparams": best_params,
-        "ensemble_report": ensemble_report,
-        "walk_forward_report": wf_report,
-        "retrain_trigger_status": retrain_status,
-        "regime_threshold_calibration": threshold_report,
-        # "gap_calibration": gap_calibration,          # <-- 順便加呢行，記錄入 metrics.json
-        "n_samples": int(len(X)),
-        "n_features": len(feature_cols),
-        "date_range": {"start": str(labeled_df.index.min()), "end": str(labeled_df.index.max())},
-    }
+    return oof_df
 
 
 # ---------------------------------------------------------------------------
-# Per-stock bottom-up model training
+# Per-stock bottom-up training
 # ---------------------------------------------------------------------------
 
-def train_stock_models():
-    print("=== Training per-stock bottom-up models ===")
-    from probability_model import train_probability_model
-    from config import stock_prob_model_path, stock_high_model_path, stock_low_model_path
+def train_stock_model(ticker: str):
+    """Trains and saves a standalone close-return model for one ticker.
+    Called for every ticker returned by get_all_tracked_tickers() — this
+    includes both HSI constituents (used for bottom-up aggregation) AND
+    watchlist-only tickers like 1211.HK/0968.HK (standalone display only).
+    is_hsi_constituent() is NOT checked here: every tracked ticker gets a
+    model regardless of its role, aggregation-vs-display is decided later
+    at prediction time in predict.py."""
+    try:
+        stooq_code = to_stooq_hk_code(ticker)
+        raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
+        if raw is None or len(raw) < 250:
+            print(f"TRAIN_STOCK[{ticker}]: insufficient data ({0 if raw is None else len(raw)} rows) — skipped.")
+            return None
 
-    universe = get_universe()
-    stock_metrics = {}
+        ccass_change = get_ccass_change(ticker)
+        stock_sentiment = get_stock_sentiment(ticker)
 
-    for ticker, weight in universe.items():
-        try:
-            print(f"Training {ticker} (weight={weight:.4f})")
-            stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
-            keywords = [ticker.split(".")[0]]
+        feat_df = build_features(raw, us_futures=None, vix=None,
+                                  ccass_change=ccass_change,
+                                  market_sentiment=get_daily_market_sentiment(),
+                                  stock_sentiment=stock_sentiment,
+                                  ticker=ticker, include_macro=False)
+        labeled_df = build_nextday_labels(feat_df)
 
-            raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
-            ccass_change = get_ccass_change(ticker.split(".")[0])
-            stock_sentiment = get_stock_sentiment(keywords)
+        feature_cols = get_numeric_feature_columns(labeled_df)
+        X = labeled_df[feature_cols]
+        y = labeled_df["next_close_return"]
 
-            feat_df = build_features(raw, ccass_change=ccass_change,
-                                      stock_sentiment=stock_sentiment, ticker=ticker,
-                                      include_macro=False)
-            labeled_df = build_nextday_labels(feat_df)
+        split = int(len(X) * 0.85)
+        X_train, X_val = X.iloc[:split], X.iloc[split:]
+        y_train, y_val = y.iloc[:split], y.iloc[split:]
 
-            if len(labeled_df) < 100:
-                print(f"Skipping {ticker}: insufficient data ({len(labeled_df)} rows)")
-                continue
+        model = HSIEnsembleModel()
+        model.fit(X_train, y_train, X_val, y_val)
+        model.save(STOCK_MODEL_DIR / ticker.replace(".", "_"))
 
-            feature_cols = get_numeric_feature_columns(labeled_df, exclude=LABEL_COLUMNS)
-            X = labeled_df[feature_cols]
-            y_close = labeled_df["next_close_return"]
-            y_high = labeled_df["next_high_return"]
-            y_low = labeled_df["next_low_return"]
+        val_pred = model.predict(X_val)
+        rmse = float(np.sqrt(np.mean((val_pred - y_val) ** 2)))
+        directional_acc = float(np.mean(np.sign(val_pred) == np.sign(y_val)))
 
-            # Close q50 regressor
-            model_close = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
-            model_close.fit(X, y_close)
-            model_close.booster_.save_model(
-                str(STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"))
+        print(f"TRAIN_STOCK[{ticker}]: RMSE={rmse:.5f}, DirAcc={directional_acc:.3f}, "
+              f"is_constituent={is_hsi_constituent(ticker)}")
 
-            # High / Low regressors (per-stock, needed for email table)
-            model_high = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
-            model_high.fit(X, y_high)
-            model_high.booster_.save_model(str(stock_high_model_path(ticker)))
+        return {
+            "ticker": ticker,
+            "is_constituent": is_hsi_constituent(ticker),
+            "rmse": rmse,
+            "directional_accuracy": directional_acc,
+            "n_train": len(X_train),
+            "n_val": len(X_val),
+        }
+    except Exception as e:
+        print(f"TRAIN_STOCK[{ticker}]: failed — {e}")
+        return None
 
-            model_low = lgb.LGBMRegressor(objective="regression", **LGB_PARAMS)
-            model_low.fit(X, y_low)
-            model_low.booster_.save_model(str(stock_low_model_path(ticker)))
 
-            # Probability (P升) classifier
-            train_probability_model(X, y_close, stock_prob_model_path(ticker))
-
-            feat_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_features.json"
-            with open(feat_path, "w") as f:
-                json.dump(feature_cols, f)
-
-            stock_metrics[ticker] = {"weight": weight, "n_samples": int(len(X))}
-        except Exception as e:
-            print(f"Failed training {ticker}: {e}")
-            continue
-
-    return stock_metrics
+def train_all_stock_models() -> list:
+    """Iterates get_all_tracked_tickers() — HSI constituents + watchlist
+    combined — training one model per ticker. get_universe()'s weights are
+    never consulted here; this loop is agnostic to index-weight, it simply
+    trains every ticker that predict.py will later need a model for."""
+    results = []
+    for ticker in get_all_tracked_tickers():
+        result = train_stock_model(ticker)
+        if result is not None:
+            results.append(result)
+    return results
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Main pipeline
 # ---------------------------------------------------------------------------
 
 def main():
-    hsi_metrics = train_hsi_models()
-    stock_metrics = train_stock_models()
+    print("=" * 70)
+    print(f"TRAIN_MODEL run started: {datetime.datetime.utcnow().isoformat()}Z")
+    print("=" * 70)
 
+    trigger = should_retrain()
+    print(f"Retrain trigger check (informational — this script runs regardless): {trigger}")
+
+    # 1. Dataset construction
+    print("\n[1/10] Building labeled HSI dataset...")
+    labeled_df = build_labeled_hsi_dataset()
+    feature_cols = get_numeric_feature_columns(labeled_df)
+    X = labeled_df[feature_cols]
+    y_close = labeled_df["next_close_return"]
+    y_high = labeled_df["next_high_return"]
+    y_low = labeled_df["next_low_return"] if "next_low_return" in labeled_df.columns else None
+
+    with open(FEATURE_LIST_PATH, "w") as f:
+        json.dump(feature_cols, f, indent=2)
+    print(f"  -> {len(labeled_df)} rows, {len(feature_cols)} features.")
+
+    # 2. Optuna hyperparameter search
+    print("\n[2/10] Running Optuna hyperparameter search...")
+    best_params = run_optuna_search(X, y_close)
+    print(f"  -> Best params: {best_params}")
+
+    # 3. Walk-forward expanding-window validation report (diagnostic only)
+    print("\n[3/10] Running expanding-window walk-forward validation...")
+    wf_report = expanding_window_validation(X, y_close, params=best_params)
+    print(f"  -> Walk-forward avg RMSE: {wf_report.get('avg_rmse')}, "
+          f"avg DirAcc: {wf_report.get('avg_directional_accuracy')}")
+
+    # 4. Chronological train/val split for final models
+    split = int(len(X) * 0.85)
+    X_train, X_val = X.iloc[:split], X.iloc[split:]
+    y_close_train, y_close_val = y_close.iloc[:split], y_close.iloc[split:]
+    y_high_train, y_high_val = y_high.iloc[:split], y_high.iloc[split:]
+
+    # 5. Final ensemble model (close)
+    print("\n[4/10] Training final Ensemble model (close)...")
+    ensemble = HSIEnsembleModel()
+    ensemble.fit(X_train, y_close_train, X_val, y_close_val)
+    ensemble.save(MODEL_DIR / "hsi_ensemble_close")
+    ensemble_rmse = float(np.sqrt(np.mean((ensemble.predict(X_val) - y_close_val) ** 2)))
+    print(f"  -> Ensemble close RMSE: {ensemble_rmse:.5f}")
+
+    # 6. Quantile models (q10/q50/q90) for close
+    print("\n[5/10] Training quantile models (close)...")
+    quantile_models = {}
+    for q, path in [(0.10, MODEL_CLOSE_Q10_PATH), (0.50, MODEL_CLOSE_Q50_PATH), (0.90, MODEL_CLOSE_Q90_PATH)]:
+        q_params = {**best_params, "objective": "quantile", "alpha": q}
+        q_model = lgb.LGBMRegressor(**q_params)
+        q_model.fit(X_train, y_close_train)
+        q_model.booster_.save_model(str(path))
+        quantile_models[q] = q_model
+    print("  -> Quantile models saved.")
+
+    # 7. Direct High / Low regressors
+    print("\n[6/10] Training High/Low regressors...")
+    high_model = lgb.LGBMRegressor(**best_params)
+    high_model.fit(X_train, y_high_train)
+    high_model.booster_.save_model(str(MODEL_HIGH_PATH))
+    high_rmse = float(np.sqrt(np.mean((high_model.predict(X_val) - y_high_val) ** 2)))
+
+    low_rmse = None
+    if y_low is not None:
+        y_low_train, y_low_val = y_low.iloc[:split], y_low.iloc[split:]
+        low_model = lgb.LGBMRegressor(**best_params)
+        low_model.fit(X_train, y_low_train)
+        low_model.booster_.save_model(str(MODEL_LOW_PATH))
+        low_rmse = float(np.sqrt(np.mean((low_model.predict(X_val) - y_low_val) ** 2)))
+    print(f"  -> High RMSE: {high_rmse:.5f}, Low RMSE: {low_rmse}")
+
+    # 8. Meta-labeling (confidence) model — trained on full-sample in-sample
+    # ensemble predictions (final deployed model, not OOF — OOF variant is
+    # used separately below purely for threshold calibration honesty).
+    print("\n[7/10] Training meta-labeling (confidence) model...")
+    full_pred = ensemble.predict(X)
+    meta_labels = build_meta_labels(pred_returns=pd.Series(full_pred, index=X.index), actual_returns=y_close)
+    meta_model = train_meta_model(X, meta_labels)
+    print("  -> Meta-labeling model trained and saved.")
+
+    # 9. HSI probability model (P-up/P-down)
+    print("\n[8/10] Training probability model...")
+    from probability_model import train_probability_model
+    prob_model = train_probability_model(X_train, y_close_train)
+    print("  -> Probability model trained and saved.")
+
+    # 10. Regime-threshold calibration (ENH#1) + dynamic ensemble weight seed (ENH#2)
+    print("\n[9/10] Generating OOF predictions for regime threshold calibration...")
+    oof_df = generate_oof_predictions(X, y_close, labeled_df, best_params)
+    fit_and_save_regime_thresholds(oof_df, output_path=REGIME_THRESHOLDS_PATH)
+    print(f"  -> Regime thresholds saved to {REGIME_THRESHOLDS_PATH}")
+
+    init_dynamic_weights(models=["lightgbm", "random_forest", "ridge"],
+                          output_path=DYNAMIC_WEIGHTS_SEED_PATH)
+    print(f"  -> Dynamic ensemble weights seeded at {DYNAMIC_WEIGHTS_SEED_PATH}")
+
+    # 11. Per-stock bottom-up models (HSI constituents + watchlist)
+    print("\n[10/10] Training per-stock models (constituents + watchlist)...")
+    stock_results = train_all_stock_models()
+    n_constituents = sum(1 for r in stock_results if r["is_constituent"])
+    n_watchlist = len(stock_results) - n_constituents
+    print(f"  -> {len(stock_results)} stock models trained "
+          f"({n_constituents} constituents, {n_watchlist} watchlist).")
+
+    # 12. Save metrics + mark trained
     metrics = {
-        "trained_at": datetime.datetime.utcnow().isoformat(),
-        "hsi_model": hsi_metrics,
-        "stock_models": stock_metrics,
+        "trained_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "n_rows": len(labeled_df),
+        "n_features": len(feature_cols),
+        "best_params": best_params,
+        "ensemble_close_rmse": ensemble_rmse,
+        "high_rmse": high_rmse,
+        "low_rmse": low_rmse,
+        "walk_forward_report": wf_report,
+        "stock_results": stock_results,
     }
     with open(METRICS_PATH, "w") as f:
         json.dump(metrics, f, indent=2, default=str)
 
     mark_trained_today()
-
-    print("=== Training complete ===")
-    print(json.dumps(metrics, indent=2, default=str))
+    print("\n" + "=" * 70)
+    print("TRAIN_MODEL run complete.")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
