@@ -1,12 +1,13 @@
-"""HSI constituent universe with sector info, for bottom-up aggregation +
-email display, plus a standalone watchlist for extra stocks to monitor
-(e.g. 1211.HK, 0968.HK) that are NOT HSI constituents.
+"""
+HSI constituent universe with sector info, for bottom-up aggregation + email display.
 
-IMPORTANT: get_universe() only ever returns HSI_CONSTITUENTS_INFO weights.
-Watchlist tickers are intentionally excluded from get_universe() so that
-predict_hsi_bottom_up() in predict.py is never distorted by non-constituent
-stocks. Watchlist tickers are only surfaced via get_all_tracked_tickers()
-for standalone per-stock prediction + display purposes.
+NEW: also defines a separate, standalone WATCHLIST — additional tickers to
+monitor and predict (e.g. 1211.HK, 0968.HK) that are NOT HSI constituents.
+Watchlist stocks must NEVER be mixed into get_universe()'s weight dict: that
+dict feeds the HSI bottom-up index aggregation, and an un-weighted or
+arbitrarily-weighted watchlist ticker injected there would silently distort
+the aggregated index-level prediction. Watchlist tickers are tracked and
+reported entirely separately (own prediction rows, own email section).
 """
 
 HSI_CONSTITUENTS_INFO = {
@@ -28,8 +29,12 @@ HSI_CONSTITUENTS_INFO = {
     "0001.HK": {"weight": 0.016, "sector": "綜合企業", "name": "長和"},
 }
 
-# 觀察名單：唔屬於 HSI 成份股，只作獨立監察/交易訊號之用，
-# 絕對不會進入 get_universe()，確保 HSI bottom-up 聚合權重不受影響。
+# ---------------------------------------------------------------------------
+# NEW: standalone watchlist — tracked/predicted independently of the HSI
+# bottom-up aggregation. No "weight" field is needed since these tickers
+# never participate in any index-level weighted sum; sector/name are kept
+# for consistent email/dashboard display alongside the HSI constituent table.
+# ---------------------------------------------------------------------------
 WATCHLIST_INFO = {
     "1211.HK": {"sector": "汽車", "name": "比亞迪股份"},
     "0968.HK": {"sector": "新能源", "name": "信義光能"},
@@ -37,29 +42,41 @@ WATCHLIST_INFO = {
 
 
 def get_universe() -> dict:
-    """Returns {ticker: normalized_weight} for HSI bottom-up aggregation only.
-    Watchlist tickers are never included here."""
+    """Returns {ticker: normalized_weight} for HSI bottom-up aggregation.
+    Watchlist tickers are intentionally excluded — see module docstring."""
     total = sum(v["weight"] for v in HSI_CONSTITUENTS_INFO.values())
     return {k: v["weight"] / total for k, v in HSI_CONSTITUENTS_INFO.items()}
 
 
-def get_all_tracked_tickers() -> list:
-    """Returns every ticker to run a standalone prediction for:
-    HSI constituents + watchlist combined. Used by predict_all_stocks()
-    for the full per-stock prediction table (email/report display),
-    independent from HSI index-level aggregation."""
-    return list(HSI_CONSTITUENTS_INFO.keys()) + list(WATCHLIST_INFO.keys())
-
-
-def is_hsi_constituent(ticker: str) -> bool:
-    """True if ticker counts toward HSI bottom-up weight aggregation."""
-    return ticker in HSI_CONSTITUENTS_INFO
-
-
 def get_stock_info(ticker: str) -> dict:
-    """Looks up sector/name from either HSI constituents or the watchlist."""
+    """Looks up sector/name for an HSI constituent. Falls back to watchlist
+    info if the ticker isn't a constituent, so callers that don't
+    distinguish the two lists (e.g. a generic 'stock info' lookup in
+    email_report.py) still get a sensible result."""
     if ticker in HSI_CONSTITUENTS_INFO:
         return HSI_CONSTITUENTS_INFO[ticker]
     if ticker in WATCHLIST_INFO:
         return WATCHLIST_INFO[ticker]
     return {"sector": "未知", "name": ticker}
+
+
+def get_watchlist() -> list:
+    """Returns the list of standalone watchlist tickers to predict and
+    report on, separately from the HSI constituent universe. predict.py
+    should iterate this list with the SAME per-stock prediction function
+    used for HSI constituents, but must write results to a separate
+    section/log so they are never folded into get_universe()'s weighted sum."""
+    return list(WATCHLIST_INFO.keys())
+
+
+def get_watchlist_info(ticker: str) -> dict:
+    """Looks up sector/name for a watchlist ticker specifically. Returns a
+    safe fallback dict (never raises) if the ticker is not on the watchlist."""
+    return WATCHLIST_INFO.get(ticker, {"sector": "未知", "name": ticker})
+
+
+def is_watchlist_ticker(ticker: str) -> bool:
+    """Convenience check used by predict.py/email_report.py to route a
+    ticker's results to the watchlist section instead of the HSI
+    constituent table."""
+    return ticker in WATCHLIST_INFO
