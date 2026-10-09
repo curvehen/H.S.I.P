@@ -150,3 +150,10 @@ DYNAMIC_WEIGHT_ROLLING_WINDOW = 60      # trailing trading days kept per sub-mod
 DYNAMIC_WEIGHT_MIN_SAMPLES = 10         # min live days before trusting dynamic over static weights
 DYNAMIC_WEIGHT_PROB_SCALE = 0.01        # logistic steepness for return->prob-up transform
 
+
+KELLY_FRACTION = 0.5            # Half-Kelly — industry-standard dampening of full-Kelly volatility
+MAX_POSITION_PCT = 0.25         # Hard cap: never size above 25% of allocated trading capital
+MIN_POSITION_PCT_FLOOR = 0.02   # If Kelly says "trade" but sizes <2%, round up to 2% or treat as noise
+KELLY_MIN_EDGE = 0.0            # Minimum raw Kelly fraction required to size any position at all
+REGIME_VOL_DAMPENING = True     # Enable/disable the NEUTRAL-regime secondary size trim
+
