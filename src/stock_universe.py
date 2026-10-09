@@ -1,4 +1,13 @@
-"""HSI constituent universe with sector info, for bottom-up aggregation + email display."""
+"""HSI constituent universe with sector info, for bottom-up aggregation +
+email display, plus a standalone watchlist for extra stocks to monitor
+(e.g. 1211.HK, 0968.HK) that are NOT HSI constituents.
+
+IMPORTANT: get_universe() only ever returns HSI_CONSTITUENTS_INFO weights.
+Watchlist tickers are intentionally excluded from get_universe() so that
+predict_hsi_bottom_up() in predict.py is never distorted by non-constituent
+stocks. Watchlist tickers are only surfaced via get_all_tracked_tickers()
+for standalone per-stock prediction + display purposes.
+"""
 
 HSI_CONSTITUENTS_INFO = {
     "0700.HK": {"weight": 0.081, "sector": "科技",   "name": "騰訊控股"},
@@ -19,12 +28,38 @@ HSI_CONSTITUENTS_INFO = {
     "0001.HK": {"weight": 0.016, "sector": "綜合企業", "name": "長和"},
 }
 
+# 觀察名單：唔屬於 HSI 成份股，只作獨立監察/交易訊號之用，
+# 絕對不會進入 get_universe()，確保 HSI bottom-up 聚合權重不受影響。
+WATCHLIST_INFO = {
+    "1211.HK": {"sector": "汽車", "name": "比亞迪股份"},
+    "0968.HK": {"sector": "新能源", "name": "信義光能"},
+}
+
 
 def get_universe() -> dict:
-    """Returns {ticker: normalized_weight} for bottom-up aggregation."""
+    """Returns {ticker: normalized_weight} for HSI bottom-up aggregation only.
+    Watchlist tickers are never included here."""
     total = sum(v["weight"] for v in HSI_CONSTITUENTS_INFO.values())
     return {k: v["weight"] / total for k, v in HSI_CONSTITUENTS_INFO.items()}
 
 
+def get_all_tracked_tickers() -> list:
+    """Returns every ticker to run a standalone prediction for:
+    HSI constituents + watchlist combined. Used by predict_all_stocks()
+    for the full per-stock prediction table (email/report display),
+    independent from HSI index-level aggregation."""
+    return list(HSI_CONSTITUENTS_INFO.keys()) + list(WATCHLIST_INFO.keys())
+
+
+def is_hsi_constituent(ticker: str) -> bool:
+    """True if ticker counts toward HSI bottom-up weight aggregation."""
+    return ticker in HSI_CONSTITUENTS_INFO
+
+
 def get_stock_info(ticker: str) -> dict:
-    return HSI_CONSTITUENTS_INFO.get(ticker, {"sector": "未知", "name": ticker})
+    """Looks up sector/name from either HSI constituents or the watchlist."""
+    if ticker in HSI_CONSTITUENTS_INFO:
+        return HSI_CONSTITUENTS_INFO[ticker]
+    if ticker in WATCHLIST_INFO:
+        return WATCHLIST_INFO[ticker]
+    return {"sector": "未知", "name": ticker}
