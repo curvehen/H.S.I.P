@@ -131,7 +131,7 @@ def predict_hsi():
     latest_row = feat_df.iloc[[-1]].copy()
     X_latest = align_features(latest_row, feature_cols)
 
-        pred_close_q10 = float(m_close_q10.predict(X_latest)[0])
+    pred_close_q10 = float(m_close_q10.predict(X_latest)[0])
     pred_close_q90 = float(m_close_q90.predict(X_latest)[0])
     pred_high = float(m_high.predict(X_latest)[0])
     pred_low = float(m_low.predict(X_latest)[0])
