@@ -1,193 +1,217 @@
 """
-Email report sender — formatted to match the requested layout:
-P(up)/P(down), signal strength, regime, HSI high/low/close/range,
-verdict, and full per-stock prediction table.
+Email Report Generator — builds and sends the daily HTML market report.
+
+Reads the single frozen result for this run from LATEST_RESULT_PATH (written
+by predict.py), rather than independently calling predict_today(). This
+guarantees the email always matches exactly what predict.py and
+signal_generator.py already computed/logged for this run — no risk of
+re-fetching live data a second time and getting a slightly different number.
 """
 
-import os
 import json
+import os
 import smtplib
-import pandas as pd
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from config import PRED_LOG_PATH
-from predict import predict_today
-from signal_generator import generate_signal
+from config import LATEST_RESULT_PATH
+
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+EMAIL_TO = os.environ.get("EMAIL_TO")
 
 
-def send_email(sender_email, app_password, recipient_email, subject, html_body):
-    # 支援單一或多個收件人（逗號分隔）
-    recipients = [r.strip() for r in recipient_email.split(",") if r.strip()]
-
-    msg = MIMEMultipart("alternative")
-    msg["From"] = sender_email
-    msg["To"] = ", ".join(recipients)   # email header 顯示用
-    msg["Subject"] = subject
-    msg.attach(MIMEText(html_body, "html"))
-
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(sender_email, app_password)
-        server.sendmail(sender_email, recipients, msg.as_string())   # sendmail 要傳 list
-    print(f"Email sent to {', '.join(recipients)}")
+def _fmt_pct(x, decimals=2):
+    if x is None:
+        return "N/A"
+    return f"{x:+.{decimals}f}%"
 
 
-def build_html_report(result: dict) -> str:
-    regime_color = {"BULL": "#2e7d32", "BEAR": "#c62828", "NEUTRAL": "#757575"}.get(result["regime"], "#757575")
-    verdict_text = result["worth_trading_reason"]
+def _fmt_price(x, decimals=1):
+    if x is None:
+        return "N/A"
+    return f"{x:,.{decimals}f}"
 
-    # 修正：rr_display 移出迴圈，喺迴圈之前計好一次，避免 NameError（當 _stock_predictions 係空list）
-    signal = generate_signal(result)
-    rr_display = f"1 : {signal['risk_reward_ratio']}" if signal["risk_reward_ratio"] else "N/A"
 
-    stock_rows = ""
-    for s in result["_stock_predictions"]:
-        signal_color = "#2e7d32" if s["signal"] == "LONG" else "#c62828"
-        rsi_display = f"{s['rsi']:.1f}" if s['rsi'] is not None else 'N/A'
+def _calibrated_signal_color(signal: str) -> str:
+    return {"LONG": "#0a7d2c", "SHORT": "#c0392b", "觀望": "#8a8a8a"}.get(signal, "#333333")
 
-        stock_rows += f"""
-        <tr>
-            <td style="padding:6px; border:1px solid #ddd;">{s['name']} ({s['ticker']})</td>
-            <td style="padding:6px; border:1px solid #ddd;">{s['sector']}</td>
-            <td style="padding:6px; border:1px solid #ddd; color:{signal_color}; font-weight:bold;">{s['signal']}</td>
-            <td style="padding:6px; border:1px solid #ddd;">{s['p_up']*100:.1f}%</td>
-            <td style="padding:6px; border:1px solid #ddd;">{s['strength_label']}</td>
-            <td style="padding:6px; border:1px solid #ddd;">{s['last_close']:.2f}</td>
-            <td style="padding:6px; border:1px solid #ddd;">{s['pred_high']:.2f}</td>
-            <td style="padding:6px; border:1px solid #ddd;">{s['pred_low']:.2f}</td>
-            <td style="padding:6px; border:1px solid #ddd;">{s['pred_close']:.2f}</td>
-            <td style="padding:6px; border:1px solid #ddd;">{s['pred_return_pct']:+.2f}%</td>
-            <td style="padding:6px; border:1px solid #ddd;">{rsi_display}</td>
-            <td style="padding:6px; border:1px solid #ddd;">{s['hit_rate']}</td>
-        </tr>
-        """
+
+def build_hsi_section(result: dict) -> str:
+    verdict_color = "#0a7d2c" if result["worth_trading"] else "#8a8a8a"
+    verdict_text = "值博 ✅" if result["worth_trading"] else "不值博 ⏸️"
+    stale_badge = ('<span style="color:#c0392b;font-weight:bold;"> ⚠️ 數據可能非即時</span>'
+                   if result.get("is_stale") else "")
+    calibrated = result.get("calibrated_signal", "N/A")
+    calibrated_color = _calibrated_signal_color(calibrated)
+    position_pct = result.get("position_size_pct")
+    position_row = (f'<tr><td>建議倉位 (Fractional Kelly)</td><td>{position_pct}%</td></tr>'
+                     if position_pct is not None else "")
 
     html = f"""
-    <html><body style="font-family: Arial, sans-serif; color:#333;">
-    <h2>HSI 次日預測報告</h2>
-    <p style="font-size:14px; color:#555;">
-        <b>數據截數日:</b> {result['data_as_of_date']} &nbsp;&nbsp;|&nbsp;&nbsp;
-        <b>預測交易日:</b> {result['target_trading_date']}
+    <h2 style="margin-bottom:4px;">恒生指數 (HSI) 次日預測 — {result.get('target_trading_date', 'N/A')}</h2>
+    <p style="color:#666;font-size:13px;margin-top:0;">
+        數據截止日: {result.get('data_as_of_date', 'N/A')} |
+        數據來源: {result.get('data_source', 'N/A')}{stale_badge} |
+        執行模式: {result.get('_run_mode', 'N/A')}
     </p>
-
-    <table style="border-collapse: collapse; width:100%; max-width:600px; margin-bottom:20px;">
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>P(升)</b></td>
-            <td style="padding:8px; border:1px solid #ddd; color:#2e7d32; font-weight:bold;">{result['p_up']*100:.1f}%</td>
-            <td style="padding:8px; border:1px solid #ddd;"><b>P(跌)</b></td>
-            <td style="padding:8px; border:1px solid #ddd; color:#c62828; font-weight:bold;">{result['p_down']*100:.1f}%</td>
-        </tr>
-
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>值博率 (Risk:Reward)</b></td>
-            <td style="padding:8px; border:1px solid #ddd; font-weight:bold;" colspan="3">{rr_display}</td>
-        </tr>
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>歷史命中率 (HSI)</b></td>
-            <td style="padding:8px; border:1px solid #ddd; font-weight:bold;" colspan="3">{result['hit_rate']}</td>
-        </tr>
-
-        <!-- 新加：校準訊號 (Regime-based threshold) -->
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>校準訊號 (Regime校準)</b></td>
-            <td style="padding:8px; border:1px solid #ddd; font-weight:bold; color:{
-                '#2e7d32' if result['calibrated_signal']=='LONG' else
-                '#c62828' if result['calibrated_signal']=='SHORT' else '#757575'
-            };" colspan="3">
-                {result['calibrated_signal']}
-                （門檻: Long≥{result['calibrated_signal_thresholds']['long']:.2f} /
-                Short≤{result['calibrated_signal_thresholds']['short']:.2f}）
-            </td>
-        </tr>
-
-        <!-- 新加：建議倉位 (Fractional Kelly) -->
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>建議倉位 (Kelly)</b></td>
-            <td style="padding:8px; border:1px solid #ddd; font-weight:bold;" colspan="3">
-                {result['position_size_pct']:.1f}%
-            </td>
-        </tr>
-
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>信號強度</b></td>
-            <td style="padding:8px; border:1px solid #ddd;" colspan="3">
-                {result['signal_strength_label']} ({result['signal_strength_margin']}%)
-            </td>
-        </tr>
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>Regime</b></td>
-            <td style="padding:8px; border:1px solid #ddd; color:{regime_color}; font-weight:bold;" colspan="3">
-                {result['regime']}
-            </td>
-        </tr>
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>預測高位</b></td>
-            <td style="padding:8px; border:1px solid #ddd;">{result['pred_high']:,.0f}</td>
-            <td style="padding:8px; border:1px solid #ddd;" colspan="2">{result['pred_high_pct']:+.2f}%</td>
-        </tr>
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>今日收市</b></td>
-            <td style="padding:8px; border:1px solid #ddd;">{result['last_close']:,.0f}</td>
-            <td style="padding:8px; border:1px solid #ddd;" colspan="2">基準</td>
-        </tr>
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>預測低位</b></td>
-            <td style="padding:8px; border:1px solid #ddd;">{result['pred_low']:,.0f}</td>
-            <td style="padding:8px; border:1px solid #ddd;" colspan="2">{result['pred_low_pct']:+.2f}%</td>
-        </tr>
-        <tr>
-            <td style="padding:8px; border:1px solid #ddd;"><b>預測範圍</b></td>
-            <td style="padding:8px; border:1px solid #ddd;">{result['pred_range_points']:,.0f} 點</td>
-            <td style="padding:8px; border:1px solid #ddd;" colspan="2">{result['pred_range_pct']:+.2f}%</td>
-        </tr>
+    <table border="0" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:560px;">
+      <tr style="background:#f5f5f5;"><td><b>市場 Regime</b></td><td><b>{result.get('regime', 'N/A')}</b></td></tr>
+      <tr><td>校準後訊號 (Regime-Calibrated)</td>
+          <td style="color:{calibrated_color};font-weight:bold;">{calibrated}</td></tr>
+      <tr style="background:#f5f5f5;"><td>P(上升) / P(下跌)</td>
+          <td>{result.get('p_up')} / {result.get('p_down')}</td></tr>
+      <tr><td>訊號強度</td><td>{result.get('signal_strength_label', 'N/A')}</td></tr>
+      <tr style="background:#f5f5f5;"><td>模型信心分數</td><td>{result.get('signal_confidence')}</td></tr>
+      {position_row}
+      <tr><td>現價 (Last Close)</td><td>{_fmt_price(result.get('last_close'))}</td></tr>
+      <tr style="background:#f5f5f5;"><td>預測低位</td>
+          <td>{_fmt_price(result.get('pred_low'))} ({_fmt_pct(result.get('pred_low_pct'))})</td></tr>
+      <tr><td>預測高位</td>
+          <td>{_fmt_price(result.get('pred_high'))} ({_fmt_pct(result.get('pred_high_pct'))})</td></tr>
+      <tr style="background:#f5f5f5;"><td>預測收市</td>
+          <td>{_fmt_price(result.get('pred_close'))} ({_fmt_pct(result.get('pred_close_return_blended', 0) * 100)})</td></tr>
+      <tr><td>預測波幅</td>
+          <td>{_fmt_price(result.get('pred_range_points'))} 點 ({_fmt_pct(result.get('pred_range_pct'))})</td></tr>
+      <tr style="background:#f5f5f5;"><td>Bottom-up 覆蓋權重</td><td>{result.get('bottom_up_coverage_weight', 0):.2f}</td></tr>
+      <tr><td>歷史命中率 (HSI)</td><td>{result.get('hit_rate', 'N/A')}</td></tr>
+      <tr style="background:#f5f5f5;"><td><b>交易建議</b></td>
+          <td style="color:{verdict_color};font-weight:bold;">{verdict_text}</td></tr>
+      <tr><td colspan="2" style="font-size:12px;color:#666;">{result.get('worth_trading_reason', '')}</td></tr>
     </table>
-
-    <p style="padding:10px; background:#fff3e0; border-left:4px solid #ff9800;">
-        <b>{verdict_text}</b><br>
-        留意高位 {result['pred_high']:,.0f} / 低位 {result['pred_low']:,.0f}
-    </p>
-
-    <h3>個股預測</h3>
-    <table style="border-collapse: collapse; width:100%; font-size:13px;">
-        <tr style="background:#f0f0f0;">
-            <th style="padding:6px; border:1px solid #ddd;">股票</th>
-            <th style="padding:6px; border:1px solid #ddd;">板塊</th>
-            <th style="padding:6px; border:1px solid #ddd;">信號</th>
-            <th style="padding:6px; border:1px solid #ddd;">P(升)</th>
-            <th style="padding:6px; border:1px solid #ddd;">強度</th>
-            <th style="padding:6px; border:1px solid #ddd;">昨收</th>
-            <th style="padding:6px; border:1px solid #ddd;">預測高位</th>
-            <th style="padding:6px; border:1px solid #ddd;">預測低位</th>
-            <th style="padding:6px; border:1px solid #ddd;">預測收市</th>
-            <th style="padding:6px; border:1px solid #ddd;">1日回報</th>
-            <th style="padding:6px; border:1px solid #ddd;">RSI</th>
-            <th style="padding:6px; border:1px solid #ddd;">命中率</th>
-        </tr>
-        {stock_rows}
-    </table>
-
-    <p style="color:#888; font-size:12px; margin-top:20px;">
-        此報告僅供參考，不構成投資建議。命中率基於歷史回測，不代表未來表現。
-    </p>
-    </body></html>
     """
     return html
 
 
+def build_llm_commentary_section(result: dict) -> str:
+    commentary = result.get("llm_commentary")
+    if not commentary:
+        return ""
+    model_name = result.get("llm_model", "LLM")
+    return f"""
+    <h3 style="margin-bottom:4px;">AI 市場分析 ({model_name})</h3>
+    <div style="background:#f9f9f9;border-left:4px solid #0a7d2c;padding:10px 14px;
+                font-size:13px;line-height:1.6;color:#333;white-space:pre-wrap;">
+        {commentary}
+    </div>
+    """
+
+
+def _stock_table_rows(stocks: list) -> str:
+    if not stocks:
+        return '<tr><td colspan="8" style="text-align:center;color:#999;">無可用預測</td></tr>'
+    rows = []
+    for s in stocks:
+        signal_color = "#0a7d2c" if s["signal"] == "LONG" else "#c0392b"
+        rr = None
+        if s.get("pred_low") and s.get("last_close") and s["pred_close"] != s["last_close"]:
+            risk = abs(s["last_close"] - s["pred_low"])
+            reward = abs(s["pred_close"] - s["last_close"])
+            rr = round(reward / risk, 2) if risk > 0 else None
+        rows.append(f"""
+        <tr>
+          <td>{s['ticker']}</td>
+          <td>{s['name']}</td>
+          <td>{s['sector']}</td>
+          <td style="color:{signal_color};font-weight:bold;">{s['signal']}</td>
+          <td>{s['p_up']}</td>
+          <td>{_fmt_price(s['last_close'])}</td>
+          <td>{_fmt_price(s['pred_low'])} / {_fmt_price(s['pred_high'])}</td>
+          <td>{_fmt_price(s['pred_close'])} ({_fmt_pct(s['pred_return_pct'])})</td>
+          <td>{rr if rr is not None else 'N/A'}</td>
+          <td>{s.get('hit_rate', 'N/A')}</td>
+        </tr>
+        """)
+    return "".join(rows)
+
+
+def build_stock_section(result: dict) -> str:
+    all_stocks = result.get("_stock_predictions") or []
+    constituents = [s for s in all_stocks if s.get("is_constituent")]
+    watchlist = [s for s in all_stocks if not s.get("is_constituent")]
+
+    header = """
+    <tr style="background:#333;color:#fff;">
+      <th>代號</th><th>名稱</th><th>行業</th><th>方向</th><th>P(升)</th>
+      <th>現價</th><th>預測低/高</th><th>預測收市</th><th>R:R</th><th>命中率</th>
+    </tr>
+    """
+
+    html = f"""
+    <h3 style="margin-bottom:4px;">HSI 成份股預測 ({len(constituents)} 支)</h3>
+    <table border="0" cellpadding="5" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;">
+      {header}
+      {_stock_table_rows(constituents)}
+    </table>
+    """
+
+    if watchlist:
+        html += f"""
+        <h3 style="margin-bottom:4px;margin-top:20px;">觀察名單 ({len(watchlist)} 支，不計入 HSI 聚合)</h3>
+        <table border="0" cellpadding="5" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;">
+          {header}
+          {_stock_table_rows(watchlist)}
+        </table>
+        """
+
+    return html
+
+
+def build_email_html(result: dict) -> str:
+    cached_note = ""
+    if result.get("_is_cached_snapshot"):
+        cached_note = ('<p style="font-size:12px;color:#999;">'
+                        '本次結果讀取自今日已凍結之 snapshot，與早前 official run 完全一致。</p>')
+
+    return f"""
+    <html>
+    <body style="font-family:Arial,Helvetica,sans-serif;color:#222;max-width:800px;margin:0 auto;">
+      {build_hsi_section(result)}
+      {cached_note}
+      {build_llm_commentary_section(result)}
+      {build_stock_section(result)}
+      <p style="font-size:11px;color:#999;margin-top:24px;">
+        本報告由自動化模型生成，僅供參考，不構成投資建議。
+        執行時間: {result.get('run_timestamp', 'N/A')}
+      </p>
+    </body>
+    </html>
+    """
+
+
+def build_email_subject(result: dict) -> str:
+    calibrated = result.get("calibrated_signal", "N/A")
+    date = result.get("target_trading_date", "N/A")
+    verdict = "值博" if result.get("worth_trading") else "觀望"
+    return f"[HSI 每日預測] {date} | {calibrated} | {verdict}"
+
+
+def send_email(result: dict):
+    if not all([SMTP_USER, SMTP_PASSWORD, EMAIL_TO]):
+        print("SMTP credentials or recipient missing — skipping email send.")
+        return False
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = build_email_subject(result)
+    msg["From"] = SMTP_USER
+    msg["To"] = EMAIL_TO
+    msg.attach(MIMEText(build_email_html(result), "html", "utf-8"))
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_USER, EMAIL_TO.split(","), msg.as_string())
+        print("Email sent successfully.")
+        return True
+    except Exception as e:
+        print(f"Email send failed: {e}")
+        return False
+
+
 if __name__ == "__main__":
-    SENDER_EMAIL = os.environ.get("EMAIL_SENDER")
-    APP_PASSWORD = os.environ.get("EMAIL_APP_PASSWORD")
-    RECIPIENT_EMAIL = os.environ.get("EMAIL_RECIPIENT")
-
-    if not all([SENDER_EMAIL, APP_PASSWORD, RECIPIENT_EMAIL]):
-        raise SystemExit("Missing email credentials: EMAIL_SENDER, EMAIL_APP_PASSWORD, EMAIL_RECIPIENT")
-
-    result = predict_today()
-    html = build_html_report(result)
-
-    subject = (f"HSI預測 {result['target_trading_date']} "
-           f"(數據:{result['data_as_of_date']}) | {result['regime']} | "
-           f"{result['calibrated_signal']} | P升{result['p_up']*100:.0f}%")
-
-    send_email(SENDER_EMAIL, APP_PASSWORD, RECIPIENT_EMAIL, subject, html)
+    with open(LATEST_RESULT_PATH) as f:
+        result = json.load(f)
+    send_email(result)
