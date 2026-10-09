@@ -133,4 +133,9 @@ TRANSACTION_COST = 0.002      # 雙邊交易成本（佔金額百分比）
 SLIPPAGE_POINTS = 3           # 每次進出場滑點（指數點數）
 
 
+# ---- Preliminary/Official run snapshot & shared result handoff ----
+SNAPSHOT_DIR = PRED_DIR / "snapshots"
+SNAPSHOT_DIR.mkdir(exist_ok=True)
+
+LATEST_RESULT_PATH = PRED_DIR / "latest_result.json"   # 單一 run 內,各步驟共用同一份結果
 
