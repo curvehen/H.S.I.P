@@ -3,11 +3,11 @@ Central configuration — shared by Colab (training) and GitHub Actions (inferen
 All paths resolve relative to the repo root (parent of this src/ folder),
 regardless of the current working directory the scripts are run from.
 """
-# ---- Worth-trading verdict thresholds ----
-# Auto-tuned via threshold_tuning.py (walk-forward OOS grid search)
+
+import os
 import json
 from pathlib import Path
-    
+
 SRC_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SRC_DIR.parent
 
@@ -17,8 +17,9 @@ PRED_DIR = ROOT_DIR / "predictions"
 LOG_DIR = ROOT_DIR / "logs"
 CCASS_DIR = DATA_DIR / "ccass"
 NEWS_DIR = DATA_DIR / "news"
+SNAPSHOT_DIR = PRED_DIR / "snapshots"
 
-for d in [DATA_DIR, MODEL_DIR, PRED_DIR, LOG_DIR, CCASS_DIR, NEWS_DIR]:
+for d in [DATA_DIR, MODEL_DIR, PRED_DIR, LOG_DIR, CCASS_DIR, NEWS_DIR, SNAPSHOT_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # ---- Tickers ----
@@ -32,10 +33,6 @@ MODEL_CLOSE_Q50_PATH = MODEL_DIR / "hsi_next_close_q50.txt"
 MODEL_CLOSE_Q90_PATH = MODEL_DIR / "hsi_next_close_q90.txt"
 MODEL_HIGH_PATH = MODEL_DIR / "hsi_next_high.txt"
 MODEL_LOW_PATH = MODEL_DIR / "hsi_next_low.txt"
-
-MODEL_OPEN_HIGH_PATH = MODEL_DIR / "hsi_high_open_based.txt"
-MODEL_OPEN_LOW_PATH = MODEL_DIR / "hsi_low_open_based.txt"
-
 
 ENSEMBLE_RF_PATH = MODEL_DIR / "hsi_ensemble_rf.pkl"
 ENSEMBLE_RIDGE_PATH = MODEL_DIR / "hsi_ensemble_ridge.pkl"
@@ -53,6 +50,15 @@ SIGNAL_LOG_PATH = PRED_DIR / "signals_log.csv"
 RETRAIN_FLAG_PATH = ROOT_DIR / "RETRAIN_NEEDED.flag"
 LAST_TRAIN_DATE_PATH = MODEL_DIR / "last_train_date.txt"
 
+# ---- Daily shared-result / snapshot paths (dual-run reproducibility) ----
+# LATEST_RESULT_PATH: 每次 predict.py 執行完即時覆寫一次，供同一次 workflow
+#   入面嘅 signal_generator.py / email_report.py 直接讀用，避免三個腳本各自
+#   重新抓即時數據，導致同一次 run 內部結果不一致。
+# SNAPSHOT_DIR: 按 target_trading_date 存檔（snapshot_YYYY-MM-DD.json），
+#   official run 寫入一次後即凍結；preliminary run 或任何同日 re-run 一律
+#   優先讀返 snapshot，保證全日結果可重現、一致。
+LATEST_RESULT_PATH = PRED_DIR / "latest_result.json"
+
 # ---- Drift detection thresholds ----
 DIRECTIONAL_ACC_MIN = 0.45
 ROLLING_WINDOW = 5
@@ -60,7 +66,8 @@ PAGE_HINKLEY_DELTA = 0.005
 PAGE_HINKLEY_THRESHOLD = 10
 
 # ---- Worth-trading verdict thresholds ----
-# Auto-tuned via threshold_tuning.py (walk-forward OOS grid search)
+# Auto-tuned via threshold_tuning.py (walk-forward OOS grid search);
+# falls back to safe defaults if tuning has never been run yet.
 _THRESHOLD_PARAMS_PATH = MODEL_DIR / "threshold_best_params.json"
 if _THRESHOLD_PARAMS_PATH.exists():
     with open(_THRESHOLD_PARAMS_PATH) as _f:
@@ -70,7 +77,6 @@ if _THRESHOLD_PARAMS_PATH.exists():
 else:
     MIN_EXPECTED_MOVE_PCT = 0.003
     MIN_CONFIDENCE = 0.60
-
 
 # ---- LightGBM default hyperparameters (fixed, stable, no external tuning dependency) ----
 LGB_PARAMS = {
@@ -99,6 +105,9 @@ NEWS_RSS_FEEDS = [
 ]
 
 # ---- HSI constituents (representative subset; expand as needed) ----
+# 注意：呢個係 flat {ticker: weight} 字典，供部分舊腳本/特徵工程直接引用權重；
+# stock_universe.py 嘅 HSI_CONSTITUENTS_INFO（含 sector/name）係獨立、更完整
+# 嘅資料來源，predict_hsi_bottom_up() 一律以 stock_universe.get_universe() 為準。
 HSI_CONSTITUENTS = {
     "0700.HK": 0.081, "9988.HK": 0.062, "0941.HK": 0.058, "1299.HK": 0.055,
     "0388.HK": 0.052, "3690.HK": 0.045, "0005.HK": 0.044, "1810.HK": 0.030,
@@ -128,14 +137,10 @@ def stock_low_model_path(ticker: str):
 # ---- Hit rate tracking ----
 HIT_RATE_PATH = MODEL_DIR / "hit_rates.json"
 
-# ---- Transaction cost simulation ----
-TRANSACTION_COST = 0.002      # 雙邊交易成本（佔金額百分比）
-SLIPPAGE_POINTS = 3           # 每次進出場滑點（指數點數）
-
-
-# ---- Preliminary/Official run snapshot & shared result handoff ----
-SNAPSHOT_DIR = PRED_DIR / "snapshots"
-SNAPSHOT_DIR.mkdir(exist_ok=True)
-
-LATEST_RESULT_PATH = PRED_DIR / "latest_result.json"   # 單一 run 內,各步驟共用同一份結果
-
+# ---- LLM-powered commentary (DashScope OpenAI-compatible endpoint) ----
+# API Key 經 GitHub Secrets 注入 (DASHSCOPE_API_KEY)，不可寫死喺代碼入面。
+LLM_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+LLM_API_KEY = os.environ.get("DASHSCOPE_API_KEY")
+LLM_MODEL = "qwen-plus"          # 待確認實際型號（qwen-plus / qwen-max / qwen-turbo）
+LLM_TIMEOUT_SECONDS = 20
+LLM_ENABLED_RUN_MODES = {"official"}   # 只喺 4am official run 觸發，preliminary 不叫 LLM
