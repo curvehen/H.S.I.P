@@ -1,24 +1,29 @@
 """
 INFERENCE SCRIPT — run daily by GitHub Actions. CPU-only, lightweight.
-1. Loads pre-trained HSI models (Ensemble + quantile + high/low).
-2. Generates direct HSI-level next-day prediction.
-3. Generates bottom-up prediction (weighted aggregation of stock close predictions).
-4. Blends direct + bottom-up.
-5. Applies meta-confidence filter.
-6. Applies regime-calibrated long/short threshold (ENH#1) to determine signal direction.
-7. Computes Fractional Kelly position size (ENH#3), adjusted by regime + rolling accuracy.
-8. Outputs entry/high/low/close + worth-trading verdict + position size.
-9. Generates LLM market commentary (official run only).
-10. Appends everything to the prediction log (official, non-cached runs only).
 
-Supports dual-run reproducibility: "official" (4am HKT) generates and freezes
-a snapshot per target_trading_date; "preliminary" (7pm HKT, or any re-run)
-reads the frozen snapshot if one exists for that date, guaranteeing identical
-output across runs without re-hitting live data or the LLM API.
+1. Loads pre-trained HSI models (Ensemble + quantile + high/low).
+2. Generates direct HSI-level next-day prediction, blending sub-model
+   outputs via DYNAMIC (Brier-score) weights when available, falling back
+   to the ensemble's static inverse-RMSE weights otherwise. (ENH#2)
+3. Generates bottom-up prediction (weighted aggregation of HSI constituent
+   stock close predictions — watchlist tickers are NEVER included here).
+4. Blends direct + bottom-up.
+5. Applies meta-confidence filter, using REGIME-SPECIFIC calibrated
+   thresholds when available, falling back to the global static
+   MIN_EXPECTED_MOVE_PCT / MIN_CONFIDENCE otherwise. (ENH#1)
+6. Computes a fractional-Kelly suggested position size for the verdict. (ENH#3)
+7. Generates standalone predictions for watchlist tickers (1211.HK, 0968.HK),
+   reported separately from the HSI constituent table.
+8. (Optional) Generates a short LLM commentary via DashScope, fail-safe —
+   disabled or any failure simply yields a None commentary, never crashes
+   the pipeline.
+9. Outputs entry/high/low/close + worth-trading verdict + position size.
+10. Appends everything (incl. raw sub-model predictions, for next day's
+    dynamic weight update by evaluate_drift.py) to the prediction log.
 
 Generates: P(up)/P(down), signal strength, regime, HSI high/low/close,
-range stats, position sizing, LLM commentary, and full per-stock prediction
-table (HSI constituents + watchlist) with hit rates.
+range stats, position sizing, per-stock prediction table with hit rates,
+watchlist table, and optional LLM commentary.
 """
 
 import json
@@ -26,33 +31,71 @@ import datetime
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
-import os
 
 from config import (MODEL_CLOSE_Q10_PATH, MODEL_CLOSE_Q50_PATH, MODEL_CLOSE_Q90_PATH,
                      MODEL_HIGH_PATH, MODEL_LOW_PATH, FEATURE_LIST_PATH, PRED_LOG_PATH,
                      STOCK_MODEL_DIR, HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER,
                      MIN_EXPECTED_MOVE_PCT, MIN_CONFIDENCE, HSI_PROB_MODEL_PATH,
-                     stock_prob_model_path, stock_high_model_path, stock_low_model_path,
-                     SNAPSHOT_DIR, LATEST_RESULT_PATH, LLM_ENABLED_RUN_MODES, LLM_MODEL)
-from data_sources import fetch_with_fallback
+                     stock_prob_model_path, stock_high_model_path, stock_low_model_path)
+from data_sources import fetch_with_fallback, to_stooq_hk_code
 from features import build_features
 from labeling import LABEL_COLUMNS
 from confidence import load_meta_model, get_signal_confidence
 from news_sentiment import get_daily_market_sentiment, get_stock_sentiment
-from stock_universe import get_universe, get_all_tracked_tickers, get_stock_info, is_hsi_constituent
-from llm_analysis import generate_market_commentary
+from stock_universe import get_universe, get_stock_info, get_watchlist, get_watchlist_info
 from ensemble_model import HSIEnsembleModel
 from regime import detect_regime
 from probability_model import load_probability_model, predict_probability_up, classify_signal_strength
 from hit_rate_tracker import get_hit_rate
 from ccass_scraper import get_ccass_change
-from data_sources import to_stooq_hk_code
 from market_hours import get_latest_usable_row, get_next_trading_day
-from threshold_calibrator import RegimeThresholdCalibrator
-from position_sizer import PositionSizer
-# from gap_estimator import load_gap_model, estimate_next_open_price
-# from macro_features import get_market_overnight_return  # 改名修正
-# from config import MODEL_OPEN_HIGH_PATH, MODEL_OPEN_LOW_PATH
+
+# ---------------------------------------------------------------------------
+# NEW: optional ENH modules — every one of them is wrapped so a missing file,
+# a missing models/*.json artifact, or an internal exception degrades to a
+# documented static fallback instead of crashing the daily GitHub Actions run.
+# ---------------------------------------------------------------------------
+
+# ENH#1 — regime-specific F1-calibrated thresholds.
+#   Contract: get_regime_threshold(regime: str) -> dict with keys
+#   "MIN_EXPECTED_MOVE_PCT", "MIN_CONFIDENCE", "source" ("calibrated"|"fallback").
+try:
+    from threshold_calibrator import get_regime_threshold
+    _REGIME_THRESHOLDS_AVAILABLE = True
+except ImportError:
+    _REGIME_THRESHOLDS_AVAILABLE = False
+    print("predict: threshold_calibrator not available — using static global thresholds.")
+
+# ENH#2 — dynamic Brier-score ensemble weighting.
+#   Contract: get_effective_weights(static_weights: dict) -> (dict, str)
+#   where str is "dynamic_brier" or "static_fallback".
+try:
+    from dynamic_ensemble_weighter import get_effective_weights
+    _DYNAMIC_WEIGHTING_AVAILABLE = True
+except ImportError:
+    _DYNAMIC_WEIGHTING_AVAILABLE = False
+    print("predict: dynamic_ensemble_weighter not available — using static ensemble weights.")
+
+# ENH#3 — fractional Kelly position sizing.
+#   Contract: compute_position_size(p_up: float, confidence: float,
+#   expected_move_pct: float) -> dict with keys "position_pct", "kelly_raw", "reason".
+try:
+    from position_sizer import compute_position_size
+    _POSITION_SIZING_AVAILABLE = True
+except ImportError:
+    _POSITION_SIZING_AVAILABLE = False
+    print("predict: position_sizer not available — position sizing will be omitted from output.")
+
+# LLM commentary (DashScope-compatible).
+#   Contract: generate_daily_commentary(context: dict) -> str | None.
+#   Must internally respect config.LLM_ANALYSIS_ENABLED and
+#   config.LLM_REQUEST_TIMEOUT_SECONDS, returning None on any failure/timeout.
+try:
+    from llm_analysis import generate_daily_commentary
+    _LLM_ANALYSIS_AVAILABLE = True
+except ImportError:
+    _LLM_ANALYSIS_AVAILABLE = False
+    print("predict: llm_analysis not available — no commentary will be generated.")
 
 
 def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
@@ -62,16 +105,9 @@ def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame
     return latest_row[feature_cols].astype(float)
 
 
-def _parse_hit_rate_pct(hit_rate_str: str) -> float:
-    """Converts a hit_rate display string like '65.8%' into a 0-1 float.
-    Falls back to a neutral 0.5 if unavailable ('N/A')."""
-    if not hit_rate_str or hit_rate_str == "N/A":
-        return 0.5
-    try:
-        return float(hit_rate_str.strip("%")) / 100
-    except (ValueError, AttributeError):
-        return 0.5
-
+# ---------------------------------------------------------------------------
+# HSI direct prediction (UPDATED for ENH#2)
+# ---------------------------------------------------------------------------
 
 def predict_hsi():
     us_futures = fetch_with_fallback(US_FUTURES_TICKER)
@@ -87,8 +123,7 @@ def predict_hsi():
     m_close_q10 = lgb.Booster(model_file=str(MODEL_CLOSE_Q10_PATH))
     m_close_q90 = lgb.Booster(model_file=str(MODEL_CLOSE_Q90_PATH))
     m_high = lgb.Booster(model_file=str(MODEL_HIGH_PATH))
-    m_low  = lgb.Booster(model_file=str(MODEL_LOW_PATH))
-
+    m_low = lgb.Booster(model_file=str(MODEL_LOW_PATH))
     ensemble = HSIEnsembleModel.load(prefix="hsi")
     with open(FEATURE_LIST_PATH) as f:
         feature_cols = json.load(f)
@@ -96,333 +131,337 @@ def predict_hsi():
     latest_row = feat_df.iloc[[-1]].copy()
     X_latest = align_features(latest_row, feature_cols)
 
-    pred_close_q10 = float(m_close_q10.predict(X_latest)[0])
-    pred_close_mid = float(ensemble.predict_loaded(X_latest)[0])
+        pred_close_q10 = float(m_close_q10.predict(X_latest)[0])
     pred_close_q90 = float(m_close_q90.predict(X_latest)[0])
-    pred_high_return = float(m_high.predict(X_latest)[0])
-    pred_low_return = float(m_low.predict(X_latest)[0])
+    pred_high = float(m_high.predict(X_latest)[0])
+    pred_low = float(m_low.predict(X_latest)[0])
+
+    # ---- Sub-model raw predictions (needed for dynamic weight blending AND
+    #      for logging, so evaluate_drift.py can compute each sub-model's
+    #      own rolling Brier score against the next day's actual outcome) ----
+    sub_preds = ensemble.predict_submodels(X_latest)  # {"lightgbm": v, "random_forest": v, "ridge": v}
+    static_weights = ensemble.weights  # {"lightgbm": w, "random_forest": w, "ridge": w}
+
+    # ---- NEW (ENH#2): dynamic Brier-score weight blending ----
+    if _DYNAMIC_WEIGHTING_AVAILABLE:
+        try:
+            effective_weights, weight_source = get_effective_weights(static_weights)
+        except Exception as e:
+            print(f"predict: dynamic weight lookup failed ({e}) — using static weights.")
+            effective_weights, weight_source = static_weights, "static_fallback"
+    else:
+        effective_weights, weight_source = static_weights, "static_fallback"
+
+    pred_close_q50 = float(sum(sub_preds[m] * effective_weights[m] for m in effective_weights))
+
+    regime = detect_regime(feat_df.iloc[[-1]])
+
+    prob_model = load_probability_model(HSI_PROB_MODEL_PATH)
+    p_up = predict_probability_up(prob_model, X_latest)
+    signal_strength = classify_signal_strength(p_up)
 
     meta_model = load_meta_model()
     confidence = get_signal_confidence(meta_model, X_latest)
 
-    prob_clf = load_probability_model(HSI_PROB_MODEL_PATH)
-    p_up = predict_probability_up(prob_clf, X_latest)
-    strength = classify_signal_strength(p_up)
-
-    regime = detect_regime(feat_df)
-    last_close = float(latest_row["Close"].values[0])
-
-    data_as_of_date = latest_row.index[0].date()
-    target_trading_date = get_next_trading_day(data_as_of_date)
+    last_close = float(raw["Close"].iloc[-1])
+    expected_move_pct = abs(pred_close_q50)
 
     return {
+        "ticker": HSI_TICKER,
+        "session": session,
         "last_close": last_close,
-        "pred_close_return_q10": pred_close_q10,
-        "pred_close_return_mid": pred_close_mid,
-        "pred_close_return_q90": pred_close_q90,
-        "pred_high_return": pred_high_return,       # 已經係 open-based 還原後嘅數值
-        "pred_low_return": pred_low_return,
-        "p_up": p_up,
-        "signal_strength_label": strength["label"],
-        "signal_strength_margin": strength["margin_pct"],
+        "pred_close_return": pred_close_q50,
+        "pred_close_q10": pred_close_q10,
+        "pred_close_q90": pred_close_q90,
+        "pred_high_return": pred_high,
+        "pred_low_return": pred_low,
         "regime": regime,
-        "signal_confidence": confidence,
-        "data_source": latest_row["source"].values[0],
-        "is_stale": bool(latest_row["is_stale"].values[0]),
-        "predict_date": str(latest_row.index[0].date()),
-        "data_as_of_date": str(data_as_of_date),
-        "target_trading_date": str(target_trading_date),
+        "p_up": p_up,
+        "signal_strength": signal_strength,
+        "confidence": confidence,
+        "expected_move_pct": expected_move_pct,
+        "sub_model_preds": sub_preds,
+        "ensemble_weights_used": effective_weights,
+        "ensemble_weight_source": weight_source,
     }
 
 
-def predict_hsi_bottom_up():
-    # 注意：呢度一律用 get_universe()（純 HSI 成份股，權重已 normalize），
-    # 與 stock_universe.py 嘅 watchlist（1211.HK/0968.HK 等）完全無關，
-    # 確保加入觀察名單股票唔會攤薄/改變 HSI bottom-up 聚合結果。
-    universe = get_universe()
-    weighted_return = 0.0
-    total_weight_used = 0.0
-    for ticker, weight in universe.items():
-        model_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"
-        feat_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_features.json"
-        if not model_path.exists() or not feat_path.exists():
-            continue
-        try:
-            stooq_code = to_stooq_hk_code(ticker)
-            raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
-            raw, session = get_latest_usable_row(raw)
-            keywords = [ticker.split(".")[0]]
-            stock_sentiment = get_stock_sentiment(keywords)
-            ccass_change = get_ccass_change(ticker.split(".")[0])
-
-            feat_df = build_features(raw, ccass_change=ccass_change,
-                                      stock_sentiment=stock_sentiment, ticker=ticker,
-                                      include_macro=False)
-            with open(feat_path) as f:
-                feature_cols = json.load(f)
-            latest_row = feat_df.iloc[[-1]].copy()
-            X_latest = align_features(latest_row, feature_cols)
-
-            model = lgb.Booster(model_file=str(model_path))
-            pred_return = float(model.predict(X_latest)[0])
-
-            weighted_return += pred_return * weight
-            total_weight_used += weight
-        except Exception as e:
-            print(f"Bottom-up predict failed for {ticker}: {e}")
-            continue
-
-    if total_weight_used > 0:
-        weighted_return /= total_weight_used
-    return {"bottom_up_close_return": weighted_return, "coverage_weight": total_weight_used}
-
+# ---------------------------------------------------------------------------
+# Single-stock prediction (shared by HSI constituents AND watchlist)
+# ---------------------------------------------------------------------------
 
 def predict_single_stock(ticker: str):
-    """Full prediction for one stock: direction, P(up), strength, high/low/close, RSI, hit rate.
-    Works identically for HSI constituents and watchlist-only tickers (e.g. 1211.HK, 0968.HK)."""
-    model_close_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"
+    stooq_code = to_stooq_hk_code(ticker)
+    raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
+    if raw is None or len(raw) < 50:
+        return None
+    raw, session = get_latest_usable_row(raw)
+
+    ccass_change = get_ccass_change(ticker)
+    stock_sentiment = get_stock_sentiment([ticker.split(".")[0]])
+    market_sentiment = get_daily_market_sentiment()
+
+    feat_df = build_features(raw, us_futures=None, vix=None,
+                              ccass_change=ccass_change,
+                              market_sentiment=market_sentiment,
+                              stock_sentiment=stock_sentiment,
+                              ticker=ticker, include_macro=False)
+
     feat_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_features.json"
+    model_close_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"
+    if not feat_path.exists() or not model_close_path.exists():
+        return None
+
+    with open(feat_path) as f:
+        feature_cols = json.load(f)
+
+    latest_row = feat_df.iloc[[-1]].copy()
+    X_latest = align_features(latest_row, feature_cols)
+
+    m_close = lgb.Booster(model_file=str(model_close_path))
+    m_high = lgb.Booster(model_file=str(stock_high_model_path(ticker)))
+    m_low = lgb.Booster(model_file=str(stock_low_model_path(ticker)))
+
+    pred_close_return = float(m_close.predict(X_latest)[0])
+    pred_high_return = float(m_high.predict(X_latest)[0])
+    pred_low_return = float(m_low.predict(X_latest)[0])
+
     prob_path = stock_prob_model_path(ticker)
-    high_path = stock_high_model_path(ticker)
-    low_path = stock_low_model_path(ticker)
+    p_up = 0.5
+    signal_strength = "weak"
+    if prob_path.exists():
+        prob_model = load_probability_model(prob_path)
+        p_up = predict_probability_up(prob_model, X_latest)
+        signal_strength = classify_signal_strength(p_up)
 
-    if not model_close_path.exists() or not feat_path.exists():
-        return None
+    last_close = float(raw["Close"].iloc[-1])
+    hit_rate = get_hit_rate(ticker)
+    info = get_stock_info(ticker)
 
-    try:
-        # OLD version stooq_code = ticker.replace(".HK", "").zfill(5) + ".hk"
-        stooq_code = to_stooq_hk_code(ticker)   # 直接用返已經 import 咗嘅共用函數
-        raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
-        raw, session = get_latest_usable_row(raw)
-        keywords = [ticker.split(".")[0]]
-        stock_sentiment = get_stock_sentiment(keywords)
-        ccass_change = get_ccass_change(ticker.split(".")[0])
-
-        feat_df = build_features(raw, ccass_change=ccass_change,
-                                  stock_sentiment=stock_sentiment, ticker=ticker,
-                                  include_macro=False)
-        with open(feat_path) as f:
-            feature_cols = json.load(f)
-        latest_row = feat_df.iloc[[-1]].copy()
-        X_latest = align_features(latest_row, feature_cols)
-
-        model_close = lgb.Booster(model_file=str(model_close_path))
-        pred_close_return = float(model_close.predict(X_latest)[0])
-
-        pred_high_return = 0.0
-        if high_path.exists():
-            model_high = lgb.Booster(model_file=str(high_path))
-            pred_high_return = float(model_high.predict(X_latest)[0])
-
-        pred_low_return = 0.0
-        if low_path.exists():
-            model_low = lgb.Booster(model_file=str(low_path))
-            pred_low_return = float(model_low.predict(X_latest)[0])
-
-        prob_clf = load_probability_model(prob_path)
-        p_up = predict_probability_up(prob_clf, X_latest)
-        strength = classify_signal_strength(p_up)
-
-        last_close = float(latest_row["Close"].values[0])
-        rsi = float(latest_row["RSI14"].values[0]) if "RSI14" in latest_row.columns else None
-        info = get_stock_info(ticker)
-
-        return {
-            "ticker": ticker,
-            "name": info.get("name", ticker),
-            "sector": info.get("sector", "未知"),
-            "is_constituent": is_hsi_constituent(ticker),
-            "signal": "LONG" if pred_close_return > 0 else "SHORT",
-            "p_up": p_up,
-            "strength_label": strength["label"],
-            "last_close": last_close,
-            "pred_high": last_close * (1 + pred_high_return),
-            "pred_low": last_close * (1 + pred_low_return),
-            "pred_close": last_close * (1 + pred_close_return),
-            "pred_return_pct": pred_close_return * 100,
-            "rsi": rsi,
-            "hit_rate": get_hit_rate(ticker),
-        }
-    except Exception as e:
-        print(f"Single-stock predict failed for {ticker}: {e}")
-        return None
-
-
-def predict_all_stocks():
-    # HSI 成份股 + 觀察名單（1211.HK, 968.HK 等）合併預測，
-    # 每項結果已內含 is_constituent 標記，供 email_report.py 分表顯示；
-    # 完全唔影響 predict_hsi_bottom_up() 嘅聚合邏輯。
-    tracked = get_all_tracked_tickers()
-    results = []
-    for ticker in tracked:
-        r = predict_single_stock(ticker)
-        if r is not None:
-            results.append(r)
-    return results
-
-
-def is_worth_trading(predicted_close_return: float, confidence: float) -> dict:
-    expected_move = abs(predicted_close_return)
-    worth_it = expected_move >= MIN_EXPECTED_MOVE_PCT and confidence >= MIN_CONFIDENCE
-    if not worth_it:
-        reason = ("信號不明，建議觀望" if expected_move < MIN_EXPECTED_MOVE_PCT
-                   else f"模型信心不足 ({confidence:.2f} < {MIN_CONFIDENCE})")
-    else:
-        reason = "預測幅度同信心度均達標"
-    return {"worth_trading": worth_it, "reason": reason}
-
-
-def _snapshot_path(target_trading_date: str):
-    return SNAPSHOT_DIR / f"snapshot_{target_trading_date}.json"
-
-
-def predict_today(run_mode: str = "preliminary"):
-    """
-    run_mode:
-      - "official"    : 凌晨 4:00am HKT 排程專用。抓即時數據、計算全部訊號、
-                         產生 LLM 摘要、寫入 snapshot，並准許寫入 predictions_log.csv。
-      - "preliminary" : 晚上 7:00pm HKT 排程專用（或任何非正式 re-run）。
-                         若當日 target_trading_date 嘅 snapshot 已存在
-                         （即 official 已跑過），直接讀返 snapshot 保證結果一致；
-                         否則抓即時數據運算，但結果標記為非正式：不寫入
-                         predictions_log.csv，亦不觸發 LLM（省成本）。
-    """
-    hsi = predict_hsi()
-    target_date = hsi["target_trading_date"]
-    snap_path = _snapshot_path(target_date)
-
-    # 若 official run 已經為呢個 target_trading_date 產生過 snapshot，
-    # 一律讀返 snapshot，確保同一交易日任何時間 re-run 都得出完全相同結果，
-    # 亦唔會重複觸發 LLM API 或重複寫入 log。
-    if snap_path.exists():
-        with open(snap_path) as f:
-            cached = json.load(f)
-        cached["_is_cached_snapshot"] = True
-        cached["_run_mode"] = run_mode
-        return cached
-
-    bottom_up = predict_hsi_bottom_up()
-
-    has_good_coverage = bottom_up["coverage_weight"] > 0.3
-    blended_return = ((hsi["pred_close_return_mid"] + bottom_up["bottom_up_close_return"]) / 2
-                       if has_good_coverage else hsi["pred_close_return_mid"])
-
-    last_close = hsi["last_close"]
-    predicted_close = last_close * (1 + blended_return)
-    predicted_high = last_close * (1 + hsi["pred_high_return"])
-    predicted_low = last_close * (1 + hsi["pred_low_return"])
-    pred_range_points = predicted_high - predicted_low
-
-    verdict = is_worth_trading(blended_return, hsi["signal_confidence"])
-    stock_predictions = predict_all_stocks()
-
-    # --- ENH#1: Regime-calibrated long/short threshold ---
-    calibrator = RegimeThresholdCalibrator.load()
-    calibrated_signal = calibrator.get_signal(prob=hsi["p_up"], regime=hsi["regime"])
-    # calibrated_signal: 1 (long) / -1 (short) / 0 (觀望，落在兩個門檻之間)
-    calibrated_signal_label = {1: "LONG", -1: "SHORT", 0: "觀望"}[calibrated_signal]
-    regime_thresholds_used = calibrator.thresholds.get(hsi["regime"], calibrator.thresholds.get("NEUTRAL"))
-
-    # --- ENH#3: Fractional Kelly position sizing ---
-    sizer = PositionSizer(kelly_fraction=0.25, max_position=1.0, min_edge=0.02)
-    roll_acc = _parse_hit_rate_pct(get_hit_rate("HSI"))
-    position_size_pct = sizer.compute_size(
-        prob=hsi["p_up"],
-        signal=calibrated_signal if calibrated_signal != 0 else int(np.sign(blended_return)),
-        regime=hsi["regime"],
-        roll_acc=roll_acc,
-    )
-
-    result = {
-        "predict_date": hsi["predict_date"],
-        "data_as_of_date": hsi["data_as_of_date"],
-        "target_trading_date": hsi["target_trading_date"],
-        "run_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    return {
+        "ticker": ticker,
+        "name": info.get("name", ticker),
+        "sector": info.get("sector", "未知"),
+        "session": session,
         "last_close": last_close,
-        "entry_price": last_close,
-        "pred_close_return_blended": blended_return,
-        "hit_rate": get_hit_rate("HSI"),
-        "p_up": hsi["p_up"],
-        "p_down": 1 - hsi["p_up"],
-        "signal_strength_label": hsi["signal_strength_label"],
-        "signal_strength_margin": hsi["signal_strength_margin"],
-        "regime": hsi["regime"],
-        "calibrated_signal": calibrated_signal_label,
-        "calibrated_signal_thresholds": regime_thresholds_used,
-        "position_size_pct": round(position_size_pct * 100, 1),
-        "pred_high": predicted_high,
-        "pred_high_pct": (predicted_high - last_close) / last_close * 100,
-        "pred_low": predicted_low,
-        "pred_low_pct": (predicted_low - last_close) / last_close * 100,
-        "pred_close": predicted_close,
-        "pred_range_points": pred_range_points,
-        "pred_range_pct": pred_range_points / last_close * 100,
-        "signal_confidence": hsi["signal_confidence"],
-        "worth_trading": verdict["worth_trading"],
-        "worth_trading_reason": verdict["reason"],
-        "bottom_up_coverage_weight": bottom_up["coverage_weight"],
-        "data_source": hsi["data_source"],
-        "is_stale": hsi["is_stale"],
-        "actual_close": None,
-        "directional_hit": None,
-        "_stock_predictions": stock_predictions,
-        "_run_mode": run_mode,
-        "_is_cached_snapshot": False,
+        "pred_close_return": pred_close_return,
+        "pred_high_return": pred_high_return,
+        "pred_low_return": pred_low_return,
+        "p_up": p_up,
+        "signal_strength": signal_strength,
+        "hit_rate": hit_rate,
     }
 
-    # LLM 綜合市場分析：只喺 official run 先觸發（LLM_ENABLED_RUN_MODES = {"official"}），
-    # preliminary 唔叫 DashScope API，省成本兼避免同日重複生成不一致嘅摘要。
-    # generate_market_commentary() 內部已做 fail-safe，API 失敗唔會中斷流程。
-    if run_mode in LLM_ENABLED_RUN_MODES:
-        result["llm_commentary"] = generate_market_commentary(result)
-        result["llm_model"] = LLM_MODEL
-    else:
-        result["llm_commentary"] = None
-        result["llm_model"] = None
 
-    # Official run 一次過凍結 snapshot，之後同一 target_trading_date 嘅任何
-    # re-run（preliminary 或手動 workflow_dispatch）一律讀返呢個檔案。
-    if run_mode == "official":
-        with open(snap_path, "w") as f:
-            json.dump(result, f, indent=2, default=str)
+# ---------------------------------------------------------------------------
+# Bottom-up aggregation (HSI constituents ONLY — watchlist excluded)
+# ---------------------------------------------------------------------------
 
+def predict_bottom_up():
+    universe = get_universe()
+    weighted_return = 0.0
+    stock_rows = []
+
+    for ticker, weight in universe.items():
+        result = predict_single_stock(ticker)
+        if result is None:
+            continue
+        weighted_return += result["pred_close_return"] * weight
+        result["weight"] = weight
+        stock_rows.append(result)
+
+    return weighted_return, stock_rows
+
+
+# ---------------------------------------------------------------------------
+# NEW: standalone watchlist predictions (1211.HK, 0968.HK) — reported
+# separately, NEVER folded into predict_bottom_up()'s weighted_return.
+# ---------------------------------------------------------------------------
+
+def predict_watchlist():
+    watchlist_rows = []
+    for ticker in get_watchlist():
+        result = predict_single_stock(ticker)
+        if result is None:
+            continue
+        info = get_watchlist_info(ticker)
+        result["name"] = info.get("name", ticker)
+        result["sector"] = info.get("sector", "未知")
+        watchlist_rows.append(result)
+    return watchlist_rows
+
+
+# ---------------------------------------------------------------------------
+# NEW (ENH#1): regime-aware worth-trading verdict
+# ---------------------------------------------------------------------------
+
+def get_effective_threshold(regime: str) -> dict:
+    """Returns {"MIN_EXPECTED_MOVE_PCT", "MIN_CONFIDENCE", "source"}.
+    Falls back cleanly to static global config values if regime calibration
+    is unavailable, uncalibrated for this regime, or raises any error."""
+    if _REGIME_THRESHOLDS_AVAILABLE:
+        try:
+            thresh = get_regime_threshold(regime)
+            if thresh and "MIN_EXPECTED_MOVE_PCT" in thresh:
+                return thresh
+        except Exception as e:
+            print(f"predict: regime threshold lookup failed ({e}) — using static global thresholds.")
+    return {
+        "MIN_EXPECTED_MOVE_PCT": MIN_EXPECTED_MOVE_PCT,
+        "MIN_CONFIDENCE": MIN_CONFIDENCE,
+        "source": "static_fallback",
+    }
+
+
+def compute_verdict(expected_move_pct: float, confidence: float, regime: str) -> dict:
+    thresh = get_effective_threshold(regime)
+    worth_trading = (expected_move_pct >= thresh["MIN_EXPECTED_MOVE_PCT"]) and \
+                     (confidence >= thresh["MIN_CONFIDENCE"])
+    return {
+        "worth_trading": bool(worth_trading),
+        "threshold_used": thresh,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main daily prediction routine
+# ---------------------------------------------------------------------------
+
+def run_daily_prediction():
+    today = datetime.date.today()
+    print(f"=== Running daily prediction for {today.isoformat()} ===")
+
+    print("[1/7] HSI direct prediction...")
+    hsi_direct = predict_hsi()
+
+    print("[2/7] HSI bottom-up prediction (constituents only)...")
+    bottom_up_return, stock_rows = predict_bottom_up()
+
+    print("[3/7] Blending direct + bottom-up...")
+    blended_return = 0.6 * hsi_direct["pred_close_return"] + 0.4 * bottom_up_return
+    pred_close_price = hsi_direct["last_close"] * (1 + blended_return)
+    pred_high_price = hsi_direct["last_close"] * (1 + hsi_direct["pred_high_return"])
+    pred_low_price = hsi_direct["last_close"] * (1 + hsi_direct["pred_low_return"])
+
+    print("[4/7] Applying regime-aware meta-confidence verdict (ENH#1)...")
+    verdict = compute_verdict(hsi_direct["expected_move_pct"], hsi_direct["confidence"], hsi_direct["regime"])
+
+    print("[5/7] Computing fractional-Kelly position size (ENH#3)...")
+    position = {"position_pct": 0.0, "kelly_raw": 0.0, "reason": "position_sizer unavailable"}
+    if _POSITION_SIZING_AVAILABLE and verdict["worth_trading"]:
+        try:
+            position = compute_position_size(
+                p_up=hsi_direct["p_up"],
+                confidence=hsi_direct["confidence"],
+                expected_move_pct=hsi_direct["expected_move_pct"],
+            )
+        except Exception as e:
+            print(f"predict: position sizing failed ({e}) — defaulting to 0% size.")
+            position = {"position_pct": 0.0, "kelly_raw": 0.0, "reason": f"error: {e}"}
+    elif not verdict["worth_trading"]:
+        position = {"position_pct": 0.0, "kelly_raw": 0.0, "reason": "verdict=not worth trading"}
+
+    print("[6/7] Generating watchlist predictions (1211.HK, 0968.HK)...")
+    watchlist_rows = predict_watchlist()
+
+    print("[7/7] Generating LLM commentary (optional)...")
+    commentary = None
+    if _LLM_ANALYSIS_AVAILABLE:
+        try:
+            commentary = generate_daily_commentary({
+                "date": today.isoformat(),
+                "regime": hsi_direct["regime"],
+                "p_up": hsi_direct["p_up"],
+                "confidence": hsi_direct["confidence"],
+                "expected_move_pct": hsi_direct["expected_move_pct"],
+                "worth_trading": verdict["worth_trading"],
+                "position_pct": position["position_pct"],
+                "pred_close_price": pred_close_price,
+                "pred_high_price": pred_high_price,
+                "pred_low_price": pred_low_price,
+                "top_stocks": sorted(stock_rows, key=lambda r: abs(r["pred_close_return"]), reverse=True)[:5],
+            })
+        except Exception as e:
+            print(f"predict: LLM commentary generation failed ({e}) — commentary omitted.")
+            commentary = None
+
+    result = {
+        "date": today.isoformat(),
+        "session": hsi_direct["session"],
+        "last_close": hsi_direct["last_close"],
+        "pred_close_return_blended": blended_return,
+        "pred_close_price": pred_close_price,
+        "pred_high_price": pred_high_price,
+        "pred_low_price": pred_low_price,
+        "pred_close_q10": hsi_direct["pred_close_q10"],
+        "pred_close_q90": hsi_direct["pred_close_q90"],
+        "regime": hsi_direct["regime"],
+        "p_up": hsi_direct["p_up"],
+        "signal_strength": hsi_direct["signal_strength"],
+        "confidence": hsi_direct["confidence"],
+        "expected_move_pct": hsi_direct["expected_move_pct"],
+        "worth_trading": verdict["worth_trading"],
+        "threshold_used": verdict["threshold_used"],
+        "position_pct": position["position_pct"],
+        "kelly_raw": position.get("kelly_raw"),
+        "position_reason": position.get("reason"),
+        "ensemble_weights_used": hsi_direct["ensemble_weights_used"],
+        "ensemble_weight_source": hsi_direct["ensemble_weight_source"],
+        "sub_model_preds": hsi_direct["sub_model_preds"],
+        "bottom_up_return": bottom_up_return,
+        "stock_predictions": stock_rows,
+        "watchlist_predictions": watchlist_rows,
+        "llm_commentary": commentary,
+    }
+
+    log_prediction(result)
+    print("=== Daily prediction complete ===")
+    print(json.dumps({k: v for k, v in result.items()
+                       if k not in ("stock_predictions", "watchlist_predictions")},
+                      indent=2, default=str))
     return result
 
 
-def append_to_log(result: dict):
-    # calibrated_signal_thresholds（nested dict）同 llm_commentary（長文字）
-    # 都唔適合落 flat CSV row，一律排除；完整內容仍保留喺 JSON snapshot /
-    # latest_result.json / email report 層面。
-    flat_result = {k: v for k, v in result.items()
-                    if not k.startswith("_")
-                    and k not in ("calibrated_signal_thresholds", "llm_commentary")}
-    row = pd.DataFrame([flat_result])
+# ---------------------------------------------------------------------------
+# Logging (UPDATED: now persists raw sub-model preds + weight source, so
+# evaluate_drift.py can compute each sub-model's Brier score and feed
+# dynamic_ensemble_weighter.py the next day)
+# ---------------------------------------------------------------------------
+
+def log_prediction(result: dict):
+    row = {
+        "date": result["date"],
+        "last_close": result["last_close"],
+        "pred_close_return_blended": result["pred_close_return_blended"],
+        "pred_close_price": result["pred_close_price"],
+        "pred_high_price": result["pred_high_price"],
+        "pred_low_price": result["pred_low_price"],
+        "regime": result["regime"],
+        "p_up": result["p_up"],
+        "confidence": result["confidence"],
+        "expected_move_pct": result["expected_move_pct"],
+        "worth_trading": result["worth_trading"],
+        "position_pct": result["position_pct"],
+        "ensemble_weight_source": result["ensemble_weight_source"],
+        "sub_pred_lightgbm": result["sub_model_preds"].get("lightgbm"),
+        "sub_pred_random_forest": result["sub_model_preds"].get("random_forest"),
+        "sub_pred_ridge": result["sub_model_preds"].get("ridge"),
+        "actual_close": None,   # backfilled by evaluate_drift.py once known
+    }
+    df_row = pd.DataFrame([row])
     if PRED_LOG_PATH.exists():
-        log = pd.read_csv(PRED_LOG_PATH)
-        log = pd.concat([log, row], ignore_index=True)
+        df_row.to_csv(PRED_LOG_PATH, mode="a", header=False, index=False)
     else:
-        log = row
-    log.to_csv(PRED_LOG_PATH, index=False)
+        df_row.to_csv(PRED_LOG_PATH, mode="w", header=True, index=False)
+
+    # NEW: also persist the full structured result as the "latest_result"
+    # snapshot, consumed directly by email_report.py / dashboard_report.py
+    # without needing to re-derive anything from the CSV log.
+    from config import LATEST_RESULT_PATH
+    with open(LATEST_RESULT_PATH, "w") as f:
+        json.dump(result, f, indent=2, default=str)
 
 
 if __name__ == "__main__":
-    run_mode = os.environ.get("RUN_MODE", "preliminary")
-    result = predict_today(run_mode=run_mode)
-
-    # 只有「official 且非 cached snapshot」（即今日第一次正式 run）先寫入
-    # predictions_log.csv，避免 official workflow 被重複觸發（例如手動
-    # workflow_dispatch）時產生重複紀錄。
-    if run_mode == "official" and not result.get("_is_cached_snapshot"):
-        append_to_log(result)
-
-    # 無論 preliminary 定 official，都將完整結果（含 LLM 摘要、個股預測）
-    # 落盤到 LATEST_RESULT_PATH，供同一次 workflow 入面嘅
-    # signal_generator.py / email_report.py 直接讀用，杜絕重複執行
-    # predict_today() 時抓到唔同即時數據導致結果不一致嘅問題。
-    with open(LATEST_RESULT_PATH, "w") as f:
-      json.dump(result, f, indent=2, default=str)
-
-    print(json.dumps({k: v for k, v in result.items() if k != "_stock_predictions"},
-                      indent=2, default=str))
-    print(f"\n個股預測數量: {len(result['_stock_predictions'])}")
+    run_daily_prediction()
 
