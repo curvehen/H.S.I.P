@@ -1,103 +1,131 @@
-# ---------------------------------------------------------------------------
-# Cost + position-sizing helpers (shared logic with backtest.py)
-#
-# FIX LOG (this revision):
-#   - PositionSizer(kelly_fraction=0.25, max_position=1.0, min_edge=0.02)
-#     used kwarg names that NEVER existed on PositionSizer.__init__()
-#     (actual names: kelly_fraction, max_position_pct, min_position_pct_floor,
-#     kelly_min_edge) — this alone would raise TypeError on import of this
-#     module's first call.
-#   - sizer.compute_size(prob=..., signal=..., regime=..., roll_acc=...) was
-#     calling a method that does not exist at all. The real method is
-#     .compute(p_up, calibrated_signal, signal_confidence, risk_reward_ratio,
-#     regime, worth_trading) -> dict with key "position_size_pct" (not a
-#     bare float).
-#   - p_up is now derived from the confidence column + direction (confidence
-#     alone is a meta-label correctness probability, not P(up) — treating it
-#     as "prob of up" when signal is SHORT would have been directionally
-#     backwards; now: p_up_proxy = confidence if signal>0 else 1-confidence).
-#   - calibrated_signal derived from the already-computed `signal` column
-#     (+1 -> LONG, -1 -> SHORT, 0 -> 觀望).
-#   - risk_reward_ratio: for HSI (pred_high/pred_low columns present),
-#     computed direction-aware against last_close as the entry price
-#     (no gap-estimated entry price exists in this historical backtest
-#     context). For per-stock backtests, pred_high/pred_low are NOT
-#     currently produced by daily_backtest_insample_stock() (it only loads
-#     the close model) — risk_reward_ratio falls back to a flagged neutral
-#     1.0 default for those rows. This is a known simplification, not a
-#     real computed ratio; extending daily_backtest_insample_stock() to
-#     also load stock_high_model_path()/stock_low_model_path() would remove
-#     this gap but is out of scope for this fix.
-#   - worth_trading is passed as True unconditionally: this backtest's
-#     purpose is to size EVERY day's existing signal via Kelly math (a day
-#     with insufficient edge naturally sizes to 0% through compute()'s own
-#     raw_kelly <= kelly_min_edge branch), not to re-apply the regime
-#     threshold veto a second time on top of the signal already produced.
-# ---------------------------------------------------------------------------
+"""
+Position Sizer — Fractional Kelly criterion position sizing for HSI /
+constituent / watchlist trading signals (ENH#3).
+"""
+
+import numpy as np
+
+from config import (
+    KELLY_FRACTION,
+    MAX_POSITION_PCT,
+    MIN_POSITION_PCT_FLOOR,
+    KELLY_MIN_EDGE,
+    REGIME_VOL_DAMPENING,
+)
 
 
+def _directional_win_probability(p_up: float, calibrated_signal: str) -> float:
+    """Converts the model's P(up) into a directional win probability
+    matching the calibrated signal direction. LONG wins if price goes up;
+    SHORT wins if price goes down."""
+    if calibrated_signal == "LONG":
+        return p_up
+    elif calibrated_signal == "SHORT":
+        return 1 - p_up
+    return 0.5
 
 
-def apply_cost_simulation(df: pd.DataFrame, confidence_col: str = "confidence",
-                           regime_col: str = None, use_position_sizing: bool = True) -> pd.DataFrame:
-    """Adds gross/net strategy return columns using Kelly position sizing
-    and transaction cost + slippage simulation."""
-    df = df.copy()
-    df["signal"] = np.sign(df["pred_close_return"])
+def _raw_kelly_fraction(p_win: float, risk_reward_ratio: float) -> float:
+    """Standard Kelly formula: f* = p - (1-p)/b, where b is the
+    risk_reward_ratio (reward/risk). Returns 0 if the edge is negative."""
+    if risk_reward_ratio is None or risk_reward_ratio <= 0:
+        return 0.0
+    b = risk_reward_ratio
+    p = p_win
+    q = 1 - p
+    raw = p - (q / b)
+    return max(raw, 0.0)
 
-    has_high_low = "pred_high" in df.columns and "pred_low" in df.columns
 
-    if use_position_sizing:
-        sizes = []
-        for _, row in df.iterrows():
-            confidence = row[confidence_col] if confidence_col in df.columns and pd.notna(row[confidence_col]) else 0.55
-            regime = row[regime_col] if regime_col and regime_col in df.columns else "NEUTRAL"
-            signal = int(row["signal"])
+def _regime_vol_dampener(regime: str) -> float:
+    """NEUTRAL regime gets an extra size trim (lower conviction environment).
+    BULL/BEAR regimes trade at full calculated size."""
+    if not REGIME_VOL_DAMPENING:
+        return 1.0
+    if regime == "NEUTRAL":
+        return 0.6
+    return 1.0
 
-            if signal > 0:
-                calibrated_signal = "LONG"
-                p_up_proxy = confidence
-            elif signal < 0:
-                calibrated_signal = "SHORT"
-                p_up_proxy = 1 - confidence
-            else:
-                calibrated_signal = "觀望"
-                p_up_proxy = 0.5
 
-            if has_high_low:
-                entry = row["last_close"]
-                if signal > 0:
-                    reward = row["pred_high"] - entry
-                    risk = entry - row["pred_low"]
-                else:
-                    reward = entry - row["pred_low"]
-                    risk = row["pred_high"] - entry
-                risk_reward_ratio = (reward / risk) if risk and risk > 0 else 1.0
-            else:
-                # Per-stock backtest has no high/low predictions available —
-                # flagged neutral fallback, not a genuinely computed ratio.
-                risk_reward_ratio = 1.0
+class PositionSizer:
+    def __init__(self, kelly_fraction: float = KELLY_FRACTION,
+                 max_position_pct: float = MAX_POSITION_PCT,
+                 min_position_pct_floor: float = MIN_POSITION_PCT_FLOOR,
+                 kelly_min_edge: float = KELLY_MIN_EDGE):
+        self.kelly_fraction = kelly_fraction
+        self.max_position_pct = max_position_pct
+        self.min_position_pct_floor = min_position_pct_floor
+        self.kelly_min_edge = kelly_min_edge
 
-            result = compute_position_size(
-                p_up=p_up_proxy,
-                calibrated_signal=calibrated_signal,
-                signal_confidence=confidence,
-                risk_reward_ratio=risk_reward_ratio,
-                regime=regime,
-                worth_trading=True,
-            )
-            sizes.append(result["position_size_pct"])
-        df["position_size"] = sizes
-    else:
-        df["position_size"] = df["signal"].abs()
+    def compute(self, p_up: float, calibrated_signal: str, signal_confidence: float,
+                risk_reward_ratio: float, regime: str = "NEUTRAL",
+                worth_trading: bool = True) -> dict:
+        if not worth_trading or calibrated_signal == "觀望":
+            return {
+                "position_size_pct": 0.0,
+                "direction": calibrated_signal,
+                "p_win": None,
+                "raw_kelly_fraction": 0.0,
+                "fractional_kelly": 0.0,
+                "confidence_scaled_kelly": 0.0,
+                "regime_dampener": None,
+                "capped": False,
+                "reason": "worth_trading=False or signal=觀望",
+            }
 
-    df["gross_ret"] = df["signal"] * df["actual_close_return"]
+        p_win = _directional_win_probability(p_up, calibrated_signal)
+        raw_kelly = _raw_kelly_fraction(p_win, risk_reward_ratio)
 
-    df["sig_change"] = df["signal"].diff().abs().fillna(abs(df["signal"].iloc[0]) if len(df) else 0)
-    slippage_pct = (SLIPPAGE_POINTS / df["last_close"]).fillna(0)
-    df["cost"] = df["sig_change"] * (TRANSACTION_COST + slippage_pct) * df["position_size"].clip(lower=0.01)
+        if raw_kelly <= self.kelly_min_edge:
+            return {
+                "position_size_pct": 0.0,
+                "direction": calibrated_signal,
+                "p_win": p_win,
+                "raw_kelly_fraction": raw_kelly,
+                "fractional_kelly": 0.0,
+                "confidence_scaled_kelly": 0.0,
+                "regime_dampener": None,
+                "capped": False,
+                "reason": f"raw_kelly {raw_kelly:.4f} <= min_edge {self.kelly_min_edge}",
+            }
 
-    df["strategy_ret"] = df["position_size"] * df["signal"] * df["actual_close_return"] - df["cost"]
-    df["bh_ret"] = df["actual_close_return"]
+        fractional_kelly = raw_kelly * self.kelly_fraction
+        confidence_scaled = fractional_kelly * signal_confidence
+        dampener = _regime_vol_dampener(regime)
+        dampened_size = confidence_scaled * dampener
 
-    return df
+        capped = dampened_size > self.max_position_pct
+        final_size = min(dampened_size, self.max_position_pct)
+
+        if 0 < final_size < self.min_position_pct_floor:
+            final_size = self.min_position_pct_floor
+
+        return {
+            "position_size_pct": round(final_size, 4),
+            "direction": calibrated_signal,
+            "p_win": round(p_win, 4),
+            "raw_kelly_fraction": round(raw_kelly, 4),
+            "fractional_kelly": round(fractional_kelly, 4),
+            "confidence_scaled_kelly": round(confidence_scaled, 4),
+            "regime_dampener": dampener,
+            "capped": capped,
+            "reason": "computed",
+        }
+
+
+_default_sizer = PositionSizer()
+
+
+def compute_position_size(p_up: float, calibrated_signal: str, signal_confidence: float,
+                           risk_reward_ratio: float, regime: str = "NEUTRAL",
+                           worth_trading: bool = True) -> dict:
+    """Module-level convenience wrapper around a shared default PositionSizer
+    instance — used by predict.py and run_daily_backtest.py."""
+    return _default_sizer.compute(
+        p_up=p_up,
+        calibrated_signal=calibrated_signal,
+        signal_confidence=signal_confidence,
+        risk_reward_ratio=risk_reward_ratio,
+        regime=regime,
+        worth_trading=worth_trading,
+    )
