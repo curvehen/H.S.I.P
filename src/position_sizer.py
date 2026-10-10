@@ -35,7 +35,7 @@
 #     threshold veto a second time on top of the signal already produced.
 # ---------------------------------------------------------------------------
 
-from position_sizer import compute_position_size
+
 
 
 def apply_cost_simulation(df: pd.DataFrame, confidence_col: str = "confidence",
