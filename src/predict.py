@@ -49,6 +49,9 @@ from probability_model import load_probability_model, predict_probability_up, cl
 from hit_rate_tracker import get_hit_rate
 from ccass_scraper import get_ccass_change
 from market_hours import get_latest_usable_row, get_next_trading_day
+import os
+from market_hours import HKT
+from datetime import datetime as _dt
 
 # ---------------------------------------------------------------------------
 # NEW: optional ENH modules — every one of them is wrapped so a missing file,
@@ -91,13 +94,29 @@ except ImportError:
 #   Must internally respect config.LLM_ANALYSIS_ENABLED and
 #   config.LLM_REQUEST_TIMEOUT_SECONDS, returning None on any failure/timeout.
 try:
-    from llm_analysis import generate_daily_commentary
+    from llm_analysis import generate_market_commentary, generate_stock_summaries_batch
     _LLM_ANALYSIS_AVAILABLE = True
 except ImportError:
     _LLM_ANALYSIS_AVAILABLE = False
     print("predict: llm_analysis not available — no commentary will be generated.")
 
 
+def determine_run_mode(now: datetime = None) -> str:
+    """
+    Decides whether this execution is 'preliminary' (7pm HKT scouting run,
+    no logging) or 'official' (4am HKT run, full logging + snapshot).
+    Priority: explicit RUN_MODE env var (set by daily_predict.yml per cron
+    job) > HKT wall-clock fallback for manual/local runs.
+    """
+    env_override = os.environ.get("RUN_MODE")
+    if env_override in ("preliminary", "official"):
+        return env_override
+    now = now or _dt.now(HKT)
+    hour = now.hour
+    if 18 <= hour < 21:
+        return "preliminary"
+    return "official"
+   
 def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
     for col in feature_cols:
         if col not in latest_row.columns:
@@ -183,6 +202,7 @@ def predict_hsi():
         "sub_model_preds": sub_preds,
         "ensemble_weights_used": effective_weights,
         "ensemble_weight_source": weight_source,
+        "feature_snapshot_row": latest_row,   # NEW: exposes the feature row used for this prediction, for official-run drift/backtest snapshotting
     }
 
 
@@ -327,9 +347,10 @@ def compute_verdict(expected_move_pct: float, confidence: float, regime: str) ->
 # Main daily prediction routine
 # ---------------------------------------------------------------------------
 
-def run_daily_prediction():
+def run_daily_prediction(run_mode: str = None):
+    run_mode = run_mode or determine_run_mode()
     today = datetime.date.today()
-    print(f"=== Running daily prediction for {today.isoformat()} ===")
+    print(f"=== Running daily prediction for {today.isoformat()} (run_mode={run_mode}) ===")
 
     print("[1/7] HSI direct prediction...")
     hsi_direct = predict_hsi()
@@ -364,29 +385,11 @@ def run_daily_prediction():
     print("[6/7] Generating watchlist predictions (1211.HK, 0968.HK)...")
     watchlist_rows = predict_watchlist()
 
-    print("[7/7] Generating LLM commentary (optional)...")
-    commentary = None
-    if _LLM_ANALYSIS_AVAILABLE:
-        try:
-            commentary = generate_daily_commentary({
-                "date": today.isoformat(),
-                "regime": hsi_direct["regime"],
-                "p_up": hsi_direct["p_up"],
-                "confidence": hsi_direct["confidence"],
-                "expected_move_pct": hsi_direct["expected_move_pct"],
-                "worth_trading": verdict["worth_trading"],
-                "position_pct": position["position_pct"],
-                "pred_close_price": pred_close_price,
-                "pred_high_price": pred_high_price,
-                "pred_low_price": pred_low_price,
-                "top_stocks": sorted(stock_rows, key=lambda r: abs(r["pred_close_return"]), reverse=True)[:5],
-            })
-        except Exception as e:
-            print(f"predict: LLM commentary generation failed ({e}) — commentary omitted.")
-            commentary = None
-
+    # ---- Assemble result dict FIRST (moved ahead of LLM step, since the
+    #      corrected LLM functions read real fields off this dict directly) ----
     result = {
         "date": today.isoformat(),
+        "run_mode": run_mode,
         "session": hsi_direct["session"],
         "last_close": hsi_direct["last_close"],
         "pred_close_return_blended": blended_return,
@@ -411,15 +414,42 @@ def run_daily_prediction():
         "bottom_up_return": bottom_up_return,
         "stock_predictions": stock_rows,
         "watchlist_predictions": watchlist_rows,
-        "llm_commentary": commentary,
+        "llm_commentary": None,
+        "stock_llm_summaries": {},
     }
 
+    print("[7/7] Generating LLM commentary + per-stock summaries (optional)...")
+    if _LLM_ANALYSIS_AVAILABLE:
+        try:
+            result["llm_commentary"] = generate_market_commentary(result)
+        except Exception as e:
+            print(f"predict: market commentary failed ({e}) — commentary omitted.")
+        try:
+            # Covers BOTH HSI constituents and watchlist tickers (ENH#5 scope expansion)
+            result["stock_llm_summaries"] = generate_stock_summaries_batch(stock_rows + watchlist_rows)
+        except Exception as e:
+            print(f"predict: stock LLM summaries failed ({e}) — summaries omitted.")
+
+    # ---- NEW: feature snapshot, official runs only (4am HKT) ----
+    if run_mode == "official":
+        try:
+            from config import SNAPSHOT_DIR
+            SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+            snapshot_path = SNAPSHOT_DIR / f"{today.isoformat()}_hsi_features.csv"
+            hsi_direct["feature_snapshot_row"].to_csv(snapshot_path, index=False)
+            print(f"predict: feature snapshot saved to {snapshot_path}")
+        except Exception as e:
+            print(f"predict: feature snapshot save failed ({e}) — skipped, non-fatal.")
+
+    # ---- log_prediction() internally no-ops for preliminary runs ----
     log_prediction(result)
+
     print("=== Daily prediction complete ===")
     print(json.dumps({k: v for k, v in result.items()
                        if k not in ("stock_predictions", "watchlist_predictions")},
                       indent=2, default=str))
     return result
+
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +459,11 @@ def run_daily_prediction():
 # ---------------------------------------------------------------------------
 
 def log_prediction(result: dict):
+    if result.get("run_mode") != "official":
+        print(f"predict: run_mode='{result.get('run_mode')}' (preliminary) — "
+              f"skipping CSV log / latest_result.json write.")
+        return
+
     row = {
         "date": result["date"],
         "last_close": result["last_close"],
@@ -454,12 +489,10 @@ def log_prediction(result: dict):
     else:
         df_row.to_csv(PRED_LOG_PATH, mode="w", header=True, index=False)
 
-    # NEW: also persist the full structured result as the "latest_result"
-    # snapshot, consumed directly by email_report.py / dashboard_report.py
-    # without needing to re-derive anything from the CSV log.
     from config import LATEST_RESULT_PATH
     with open(LATEST_RESULT_PATH, "w") as f:
         json.dump(result, f, indent=2, default=str)
+
 
 
 if __name__ == "__main__":
