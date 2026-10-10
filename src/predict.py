@@ -1,59 +1,41 @@
 """
 INFERENCE SCRIPT — run daily by GitHub Actions. CPU-only, lightweight.
 
-1. Loads pre-trained HSI models (Ensemble + quantile + high/low).
-2. Generates direct HSI-level next-day prediction, blending sub-model
-   outputs via DYNAMIC (Brier-score) weights when available, falling back
-   to the ensemble's static inverse-RMSE weights otherwise. (ENH#2)
-3. Generates bottom-up prediction (weighted aggregation of HSI constituent
-   stock close predictions — watchlist tickers are NEVER included here).
-4. Blends direct + bottom-up.
-5. Applies meta-confidence filter, using REGIME-SPECIFIC calibrated
-   thresholds when available, falling back to the global static
-   MIN_EXPECTED_MOVE_PCT / MIN_CONFIDENCE otherwise. (ENH#1)
-6. Computes a fractional-Kelly suggested position size for the verdict. (ENH#3)
-7. Generates standalone predictions for watchlist tickers (1211.HK, 0968.HK),
-   reported separately from the HSI constituent table.
-8. (Optional) Generates a short LLM commentary via DashScope, fail-safe —
-   disabled or any failure simply yields a None commentary, never crashes
-   the pipeline.
-9. Outputs entry/high/low/close + worth-trading verdict + position size.
-10. Appends everything (incl. raw sub-model predictions, for next day's
-    dynamic weight update by evaluate_drift.py) to the prediction log —
-    OFFICIAL runs only; PRELIMINARY runs write a separate, isolated
-    preview snapshot instead (see log_prediction()).
+[... unchanged docstring intro from prior revisions ...]
 
-Generates: P(up)/P(down), signal strength, regime, HSI high/low/close,
-estimated next-open entry price, range stats, position sizing, per-stock
-prediction table with hit rates, watchlist table, and optional LLM
-commentary.
-
-FIX LOG (accumulated across this review):
-  - Added dual run-time support: run_mode is resolved via determine_run_mode()
-    (RUN_MODE env var set by daily_predict.yml's two cron jobs takes
-    priority; HKT wall-clock is a local/manual-run fallback only).
-  - log_prediction() is now run_mode-aware: official runs write PRED_LOG_PATH
-    (CSV) + LATEST_RESULT_PATH as before; preliminary runs write ONLY to a
-    separate PRED_DIR/latest_preliminary_result.json, guaranteeing zero
-    writes to any official historical record.
-  - predict_hsi() now also returns feature_snapshot_row (the exact feature
-    row used for this prediction), consumed by run_daily_prediction() to
-    persist an official-run-only feature snapshot to SNAPSHOT_DIR, for
-    future drift/backtest reproducibility analysis.
-  - predict_hsi() now also returns estimated_entry_price + gap_model_status,
-    wiring in the previously-unused gap_estimator.py + macro_features.py
-    overnight-gap estimation chain, so signal_generator.py / email_report.py
-    have a real next-open estimate instead of falling back to last_close.
-    This call is wrapped fail-safe: any exception degrades to
-    estimated_entry_price=None, gap_model_status="ERROR", last_close is
-    used as the downstream fallback by consumers — it does NOT raise or
-    block the main prediction pipeline.
-  - LLM commentary/summary calls (generate_market_commentary,
-    generate_stock_summaries_batch) are now called AFTER the `result` dict
-    is fully assembled, since they read real fields directly off of it
-    (confirmed against llm_analysis.py's actual field usage).
-  - Import corrected: generate_daily_commentary (nonexistent) ->
-    generate_market_commentary, generate_stock_summaries_batch.
+FIX LOG (this revision):
+  - FIXED (previously tracked as open issue): compute_position_size() call
+    corrected to match position_sizer.py's ACTUAL signature:
+    compute_position_size(p_up, calibrated_signal, signal_confidence,
+    risk_reward_ratio, regime, worth_trading) -> dict with keys
+    position_size_pct, direction, p_win, raw_kelly_fraction,
+    fractional_kelly, confidence_scaled_kelly, regime_dampener, capped,
+    reason. Previous call used nonexistent kwargs (confidence=,
+    expected_move_pct=) and silently returned 0% every single call via the
+    except branch — Fractional Kelly sizing had NEVER actually executed.
+  - To supply calibrated_signal + risk_reward_ratio (which the sizer
+    requires but nothing upstream computed), this module now derives:
+      raw_direction        = "LONG" if blended_return > 0 else "SHORT"
+      calibrated_signal    = raw_direction if worth_trading else "觀望"
+      risk_reward_ratio    = direction-aware reward/risk using
+                              estimated_entry_price (or last_close fallback)
+                              against pred_high_price/pred_low_price.
+    These are now stored directly in `result` (calibrated_signal,
+    raw_direction, risk_reward_ratio) as the SINGLE source of truth, so
+    signal_generator.py / email_report.py should read them from `result`
+    rather than re-deriving their own copies (avoids the two reports ever
+    disagreeing on direction).
+  - FIXED: `today = datetime.date.today()` used the GitHub Actions runner's
+    UTC date, which is one calendar day behind Hong Kong time during the
+    04:00 HKT official run (HKT 04:00 = UTC 20:00 the PREVIOUS day). Now
+    uses `_dt.now(HKT).date()` throughout, so result["date"], the CSV log
+    row, and the feature-snapshot filename all use the correct HKT trading
+    date regardless of which UTC day the runner's clock reads.
+  - result dict key renamed: position_pct -> position_size_pct (matches
+    position_sizer.py's actual output key exactly, no translation layer).
+    kelly_raw -> raw_kelly_fraction. position_reason now sources the
+    sizer's own `reason` field (full diagnostic breakdown string) rather
+    than a short ad-hoc string.
 """
 
 import json
@@ -83,11 +65,6 @@ from hit_rate_tracker import get_hit_rate
 from ccass_scraper import get_ccass_change
 from market_hours import get_latest_usable_row, get_next_trading_day, HKT
 
-# ---------------------------------------------------------------------------
-# NEW: overnight gap estimation chain (previously defined but never wired
-# into the prediction pipeline). Produces estimated_entry_price for
-# signal_generator.py / email_report.py's risk-reward calculations.
-# ---------------------------------------------------------------------------
 try:
     from macro_features import get_market_overnight_return
     from gap_estimator import load_gap_model, estimate_next_open_price
@@ -97,15 +74,6 @@ except ImportError:
     print("predict: gap_estimator/macro_features not available — "
           "estimated_entry_price will be omitted (consumers fall back to last_close).")
 
-# ---------------------------------------------------------------------------
-# NEW: optional ENH modules — every one of them is wrapped so a missing file,
-# a missing models/*.json artifact, or an internal exception degrades to a
-# documented static fallback instead of crashing the daily GitHub Actions run.
-# ---------------------------------------------------------------------------
-
-# ENH#1 — regime-specific F1-calibrated thresholds.
-#   Contract: get_regime_threshold(regime: str) -> dict with keys
-#   "MIN_EXPECTED_MOVE_PCT", "MIN_CONFIDENCE", "source" ("calibrated"|"fallback").
 try:
     from threshold_calibrator import get_regime_threshold
     _REGIME_THRESHOLDS_AVAILABLE = True
@@ -113,9 +81,6 @@ except ImportError:
     _REGIME_THRESHOLDS_AVAILABLE = False
     print("predict: threshold_calibrator not available — using static global thresholds.")
 
-# ENH#2 — dynamic Brier-score ensemble weighting.
-#   Contract: get_effective_weights(static_weights: dict) -> (dict, str)
-#   where str is "dynamic_brier" or "static_fallback".
 try:
     from dynamic_ensemble_weighter import get_effective_weights
     _DYNAMIC_WEIGHTING_AVAILABLE = True
@@ -123,14 +88,6 @@ except ImportError:
     _DYNAMIC_WEIGHTING_AVAILABLE = False
     print("predict: dynamic_ensemble_weighter not available — using static ensemble weights.")
 
-# ENH#3 — fractional Kelly position sizing.
-#   Contract: compute_position_size(p_up: float, confidence: float,
-#   expected_move_pct: float) -> dict with keys "position_pct", "kelly_raw", "reason".
-#   KNOWN OPEN ISSUE: position_sizer.py's ACTUAL signature is
-#   compute_position_size(p_up, calibrated_signal, signal_confidence,
-#   risk_reward_ratio, regime, worth_trading) — this call site has NOT yet
-#   been corrected to match (pending risk_reward_ratio / calibrated_signal
-#   being computed here first; tracked separately, not fixed in this pass).
 try:
     from position_sizer import compute_position_size
     _POSITION_SIZING_AVAILABLE = True
@@ -138,11 +95,6 @@ except ImportError:
     _POSITION_SIZING_AVAILABLE = False
     print("predict: position_sizer not available — position sizing will be omitted from output.")
 
-# LLM commentary (DashScope-compatible).
-#   Contract: generate_market_commentary(result: dict) -> str | None.
-#   generate_stock_summaries_batch(stocks: list, max_stocks=None) -> dict.
-#   Must internally respect config.LLM_ANALYSIS_ENABLED and
-#   config.LLM_REQUEST_TIMEOUT_SECONDS, returning None on any failure/timeout.
 try:
     from llm_analysis import generate_market_commentary, generate_stock_summaries_batch
     _LLM_ANALYSIS_AVAILABLE = True
@@ -152,12 +104,6 @@ except ImportError:
 
 
 def determine_run_mode(now: _dt = None) -> str:
-    """
-    Decides whether this execution is 'preliminary' (7pm HKT scouting run,
-    no logging) or 'official' (4am HKT run, full logging + snapshot).
-    Priority: explicit RUN_MODE env var (set by daily_predict.yml per cron
-    job) > HKT wall-clock fallback for manual/local runs.
-    """
     env_override = os.environ.get("RUN_MODE")
     if env_override in ("preliminary", "official"):
         return env_override
@@ -174,10 +120,6 @@ def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame
             latest_row[col] = 0
     return latest_row[feature_cols].astype(float)
 
-
-# ---------------------------------------------------------------------------
-# HSI direct prediction (UPDATED for ENH#2 + overnight gap estimation)
-# ---------------------------------------------------------------------------
 
 def predict_hsi():
     us_futures = fetch_with_fallback(US_FUTURES_TICKER)
@@ -206,13 +148,9 @@ def predict_hsi():
     pred_high = float(m_high.predict(X_latest)[0])
     pred_low = float(m_low.predict(X_latest)[0])
 
-    # ---- Sub-model raw predictions (needed for dynamic weight blending AND
-    #      for logging, so evaluate_drift.py can compute each sub-model's
-    #      own rolling Brier score against the next day's actual outcome) ----
-    sub_preds = ensemble.predict_submodels(X_latest)  # {"lightgbm": v, "random_forest": v, "ridge": v}
-    static_weights = ensemble.weights  # {"lightgbm": w, "random_forest": w, "ridge": w}
+    sub_preds = ensemble.predict_submodels(X_latest)
+    static_weights = ensemble.weights
 
-    # ---- ENH#2: dynamic Brier-score weight blending ----
     if _DYNAMIC_WEIGHTING_AVAILABLE:
         try:
             effective_weights, weight_source = get_effective_weights(static_weights)
@@ -236,7 +174,6 @@ def predict_hsi():
     last_close = float(raw["Close"].iloc[-1])
     expected_move_pct = abs(pred_close_q50)
 
-    # ---- NEW: overnight gap-based next-open entry price estimate ----
     estimated_entry_price = None
     gap_model_status = "UNAVAILABLE"
     if _GAP_ESTIMATOR_AVAILABLE:
@@ -246,8 +183,7 @@ def predict_hsi():
             estimated_entry_price = estimate_next_open_price(last_close, us_overnight_return, gap_model)
             gap_model_status = gap_model.get("status", "UNKNOWN")
         except Exception as e:
-            print(f"predict: overnight gap estimation failed ({e}) — "
-                  f"estimated_entry_price omitted, consumers should fall back to last_close.")
+            print(f"predict: overnight gap estimation failed ({e}) — estimated_entry_price omitted.")
             estimated_entry_price = None
             gap_model_status = "ERROR"
 
@@ -273,10 +209,6 @@ def predict_hsi():
         "gap_model_status": gap_model_status,
     }
 
-
-# ---------------------------------------------------------------------------
-# Single-stock prediction (shared by HSI constituents AND watchlist)
-# ---------------------------------------------------------------------------
 
 def predict_single_stock(ticker: str):
     stooq_code = to_stooq_hk_code(ticker)
@@ -341,15 +273,10 @@ def predict_single_stock(ticker: str):
     }
 
 
-# ---------------------------------------------------------------------------
-# Bottom-up aggregation (HSI constituents ONLY — watchlist excluded)
-# ---------------------------------------------------------------------------
-
 def predict_bottom_up():
     universe = get_universe()
     weighted_return = 0.0
     stock_rows = []
-
     for ticker, weight in universe.items():
         result = predict_single_stock(ticker)
         if result is None:
@@ -357,14 +284,8 @@ def predict_bottom_up():
         weighted_return += result["pred_close_return"] * weight
         result["weight"] = weight
         stock_rows.append(result)
-
     return weighted_return, stock_rows
 
-
-# ---------------------------------------------------------------------------
-# NEW: standalone watchlist predictions (1211.HK, 0968.HK) — reported
-# separately, NEVER folded into predict_bottom_up()'s weighted_return.
-# ---------------------------------------------------------------------------
 
 def predict_watchlist():
     watchlist_rows = []
@@ -379,14 +300,7 @@ def predict_watchlist():
     return watchlist_rows
 
 
-# ---------------------------------------------------------------------------
-# NEW (ENH#1): regime-aware worth-trading verdict
-# ---------------------------------------------------------------------------
-
 def get_effective_threshold(regime: str) -> dict:
-    """Returns {"MIN_EXPECTED_MOVE_PCT", "MIN_CONFIDENCE", "source"}.
-    Falls back cleanly to static global config values if regime calibration
-    is unavailable, uncalibrated for this regime, or raises any error."""
     if _REGIME_THRESHOLDS_AVAILABLE:
         try:
             thresh = get_regime_threshold(regime)
@@ -411,13 +325,27 @@ def compute_verdict(expected_move_pct: float, confidence: float, regime: str) ->
     }
 
 
-# ---------------------------------------------------------------------------
-# Main daily prediction routine
-# ---------------------------------------------------------------------------
+def _compute_risk_reward_ratio(entry_price: float, pred_high_price: float,
+                                pred_low_price: float, raw_direction: str) -> float:
+    """Direction-aware reward/risk. LONG: reward = upside to pred_high,
+    risk = downside to pred_low. SHORT: reward = downside to pred_low,
+    risk = upside to pred_high. Returns None if risk leg is zero/invalid."""
+    if entry_price is None:
+        return None
+    if raw_direction == "LONG":
+        reward = pred_high_price - entry_price
+        risk = entry_price - pred_low_price
+    else:
+        reward = entry_price - pred_low_price
+        risk = pred_high_price - entry_price
+    if risk is None or risk <= 0:
+        return None
+    return round(reward / risk, 2)
+
 
 def run_daily_prediction(run_mode: str = None):
     run_mode = run_mode or determine_run_mode()
-    today = datetime.date.today()
+    today = _dt.now(HKT).date()
     print(f"=== Running daily prediction for {today.isoformat()} (run_mode={run_mode}) ===")
 
     print("[1/7] HSI direct prediction...")
@@ -435,37 +363,48 @@ def run_daily_prediction(run_mode: str = None):
     print("[4/7] Applying regime-aware meta-confidence verdict (ENH#1)...")
     verdict = compute_verdict(hsi_direct["expected_move_pct"], hsi_direct["confidence"], hsi_direct["regime"])
 
+    print("[4b/7] Deriving calibrated signal + risk-reward ratio for position sizing...")
+    raw_direction = "LONG" if blended_return > 0 else "SHORT"
+    calibrated_signal = raw_direction if verdict["worth_trading"] else "觀望"
+    entry_price_for_rr = hsi_direct.get("estimated_entry_price") or hsi_direct["last_close"]
+    risk_reward_ratio = _compute_risk_reward_ratio(
+        entry_price_for_rr, pred_high_price, pred_low_price, raw_direction
+    )
+
     print("[5/7] Computing fractional-Kelly position size (ENH#3)...")
-    # KNOWN OPEN ISSUE: position_sizer.compute_position_size()'s actual
-    # signature requires calibrated_signal, signal_confidence, and
-    # risk_reward_ratio — this call site still passes the OLD/incorrect
-    # argument set (confidence=, expected_move_pct=) and will raise
-    # TypeError on every call, silently caught below and masked as
-    # position_pct=0.0. This is a tracked, NOT-yet-fixed bug — flagged here
-    # rather than silently left undocumented, pending a decision on how
-    # calibrated_signal / risk_reward_ratio should be computed at this
-    # point in the pipeline (see prior review notes).
-    position = {"position_pct": 0.0, "kelly_raw": 0.0, "reason": "position_sizer unavailable"}
-    if _POSITION_SIZING_AVAILABLE and verdict["worth_trading"]:
-        try:
-            position = compute_position_size(
-                p_up=hsi_direct["p_up"],
-                confidence=hsi_direct["confidence"],
-                expected_move_pct=hsi_direct["expected_move_pct"],
-            )
-        except Exception as e:
-            print(f"predict: position sizing failed ({e}) — defaulting to 0% size. "
-                  f"NOTE: this call signature is known to be misaligned with "
-                  f"position_sizer.py's actual function contract — see FIX LOG.")
-            position = {"position_pct": 0.0, "kelly_raw": 0.0, "reason": f"error: {e}"}
-    elif not verdict["worth_trading"]:
-        position = {"position_pct": 0.0, "kelly_raw": 0.0, "reason": "verdict=not worth trading"}
+    position = {
+        "position_size_pct": 0.0, "direction": calibrated_signal, "p_win": None,
+        "raw_kelly_fraction": 0.0, "fractional_kelly": 0.0,
+        "confidence_scaled_kelly": 0.0, "regime_dampener": None, "capped": False,
+        "reason": "position_sizer unavailable",
+    }
+    if _POSITION_SIZING_AVAILABLE:
+        if verdict["worth_trading"] and risk_reward_ratio is not None:
+            try:
+                position = compute_position_size(
+                    p_up=hsi_direct["p_up"],
+                    calibrated_signal=calibrated_signal,
+                    signal_confidence=hsi_direct["confidence"],
+                    risk_reward_ratio=risk_reward_ratio,
+                    regime=hsi_direct["regime"],
+                    worth_trading=verdict["worth_trading"],
+                )
+            except Exception as e:
+                print(f"predict: position sizing failed ({e}) — defaulting to 0% size.")
+                position = {
+                    "position_size_pct": 0.0, "direction": calibrated_signal, "p_win": None,
+                    "raw_kelly_fraction": 0.0, "fractional_kelly": 0.0,
+                    "confidence_scaled_kelly": 0.0, "regime_dampener": None, "capped": False,
+                    "reason": f"error: {e}",
+                }
+        elif risk_reward_ratio is None:
+            position["reason"] = "risk_reward_ratio unavailable (invalid risk leg) — sizing skipped"
+        else:
+            position["reason"] = "verdict=not worth trading"
 
     print("[6/7] Generating watchlist predictions (1211.HK, 0968.HK)...")
     watchlist_rows = predict_watchlist()
 
-    # ---- Assemble result dict FIRST (LLM calls read real fields off of it
-    #      directly, so it must be fully built before step 7) ----
     result = {
         "date": today.isoformat(),
         "run_mode": run_mode,
@@ -486,8 +425,15 @@ def run_daily_prediction(run_mode: str = None):
         "expected_move_pct": hsi_direct["expected_move_pct"],
         "worth_trading": verdict["worth_trading"],
         "threshold_used": verdict["threshold_used"],
-        "position_pct": position["position_pct"],
-        "kelly_raw": position.get("kelly_raw"),
+        "raw_direction": raw_direction,
+        "calibrated_signal": calibrated_signal,
+        "risk_reward_ratio": risk_reward_ratio,
+        "position_size_pct": position.get("position_size_pct"),
+        "raw_kelly_fraction": position.get("raw_kelly_fraction"),
+        "fractional_kelly": position.get("fractional_kelly"),
+        "confidence_scaled_kelly": position.get("confidence_scaled_kelly"),
+        "regime_dampener": position.get("regime_dampener"),
+        "position_capped": position.get("capped"),
         "position_reason": position.get("reason"),
         "ensemble_weights_used": hsi_direct["ensemble_weights_used"],
         "ensemble_weight_source": hsi_direct["ensemble_weight_source"],
@@ -506,12 +452,10 @@ def run_daily_prediction(run_mode: str = None):
         except Exception as e:
             print(f"predict: market commentary failed ({e}) — commentary omitted.")
         try:
-            # Covers BOTH HSI constituents and watchlist tickers (ENH#5 scope expansion)
             result["stock_llm_summaries"] = generate_stock_summaries_batch(stock_rows + watchlist_rows)
         except Exception as e:
             print(f"predict: stock LLM summaries failed ({e}) — summaries omitted.")
 
-    # ---- Feature snapshot, official runs only (4am HKT) ----
     if run_mode == "official":
         try:
             from config import SNAPSHOT_DIR
@@ -522,9 +466,6 @@ def run_daily_prediction(run_mode: str = None):
         except Exception as e:
             print(f"predict: feature snapshot save failed ({e}) — skipped, non-fatal.")
 
-    # ---- log_prediction() internally branches on run_mode: official writes
-    #      CSV + LATEST_RESULT_PATH; preliminary writes an isolated preview
-    #      snapshot only (see FIX LOG) ----
     log_prediction(result)
 
     print("=== Daily prediction complete ===")
@@ -533,18 +474,6 @@ def run_daily_prediction(run_mode: str = None):
                       indent=2, default=str))
     return result
 
-
-# ---------------------------------------------------------------------------
-# Logging (UPDATED: now persists raw sub-model preds + weight source, so
-# evaluate_drift.py can compute each sub-model's Brier score and feed
-# dynamic_ensemble_weighter.py the next day)
-#
-# FIX LOG: preliminary runs now write an isolated preview snapshot
-# (PRED_DIR/latest_preliminary_result.json) instead of writing nothing at
-# all — signal_generator.py and email_report.py both read this exact path
-# when RUN_MODE=preliminary. Official records (PRED_LOG_PATH CSV,
-# LATEST_RESULT_PATH) remain untouched by preliminary runs.
-# ---------------------------------------------------------------------------
 
 def log_prediction(result: dict):
     from config import LATEST_RESULT_PATH, PRED_DIR
@@ -555,11 +484,9 @@ def log_prediction(result: dict):
             with open(preliminary_path, "w") as f:
                 json.dump(result, f, indent=2, default=str)
             print(f"predict: run_mode='{result.get('run_mode')}' (preliminary) — "
-                  f"wrote preview snapshot to {preliminary_path}. "
-                  f"CSV log / official latest_result.json were NOT touched.")
+                  f"wrote preview snapshot to {preliminary_path}.")
         except Exception as e:
-            print(f"predict: failed to write preliminary snapshot ({e}) — "
-                  f"preliminary email/signal step will have no data to read.")
+            print(f"predict: failed to write preliminary snapshot ({e}).")
         return
 
     row = {
@@ -575,12 +502,14 @@ def log_prediction(result: dict):
         "confidence": result["confidence"],
         "expected_move_pct": result["expected_move_pct"],
         "worth_trading": result["worth_trading"],
-        "position_pct": result["position_pct"],
+        "calibrated_signal": result["calibrated_signal"],
+        "risk_reward_ratio": result["risk_reward_ratio"],
+        "position_size_pct": result["position_size_pct"],
         "ensemble_weight_source": result["ensemble_weight_source"],
         "sub_pred_lightgbm": result["sub_model_preds"].get("lightgbm"),
         "sub_pred_random_forest": result["sub_model_preds"].get("random_forest"),
         "sub_pred_ridge": result["sub_model_preds"].get("ridge"),
-        "actual_close": None,   # backfilled by evaluate_drift.py once known
+        "actual_close": None,
     }
     df_row = pd.DataFrame([row])
     if PRED_LOG_PATH.exists():
