@@ -91,9 +91,6 @@ def _resolve_entry_price(prediction: dict):
 
 
 def generate_signal(prediction: dict) -> dict:
-    raw_direction = "LONG" if prediction["pred_close_return_blended"] > 0 else "SHORT"
-    calibrated_signal = _determine_calibrated_signal(prediction, raw_direction)
-
     hit_rate = prediction.get("hit_rate")
     if hit_rate is None:
         try:
@@ -106,12 +103,12 @@ def generate_signal(prediction: dict) -> dict:
     signal = {
         "signal_date": prediction.get("date"),
         "run_mode": prediction.get("run_mode"),
-        "raw_direction": raw_direction,
-        "calibrated_signal": calibrated_signal,
+        "raw_direction": prediction.get("raw_direction"),
+        "calibrated_signal": prediction.get("calibrated_signal"),
         "regime": prediction.get("regime"),
         "p_up": prediction.get("p_up"),
         "confidence_score": round(prediction["confidence"], 4) if prediction.get("confidence") is not None else None,
-        "position_size_pct": prediction.get("position_pct"),
+        "position_size_pct": prediction.get("position_size_pct"),
         "worth_trading": prediction["worth_trading"],
         "reason": _build_worth_trading_reason(prediction),
         "last_close": round(prediction["last_close"], 1),
@@ -121,17 +118,10 @@ def generate_signal(prediction: dict) -> dict:
         "pred_low": round(prediction["pred_low_price"], 1),
         "pred_high": round(prediction["pred_high_price"], 1),
         "pred_close": round(prediction["pred_close_price"], 1),
+        "risk_reward_ratio": prediction.get("risk_reward_ratio"),
         "hit_rate": hit_rate,
         "llm_commentary": prediction.get("llm_commentary"),
     }
-
-    if signal["entry_price"] is not None:
-        risk = abs(signal["entry_price"] - signal["pred_low"])
-        reward = abs(signal["pred_close"] - signal["entry_price"])
-        signal["risk_reward_ratio"] = round(reward / risk, 2) if risk > 0 else None
-    else:
-        signal["risk_reward_ratio"] = None
-
     return signal
 
 
