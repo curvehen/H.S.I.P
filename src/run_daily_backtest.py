@@ -10,6 +10,38 @@ alongside raw directional accuracy.
 Usage:
     python run_daily_backtest.py insample 2026-01-01
     python run_daily_backtest.py walkforward 2026-01-01
+
+FIX LOG (this revision):
+  - PositionSizer(kelly_fraction=0.25, max_position=1.0, min_edge=0.02)
+    used kwarg names that never existed on PositionSizer.__init__()
+    (real names: kelly_fraction, max_position_pct, min_position_pct_floor,
+    kelly_min_edge) — this raised TypeError on every run.
+  - sizer.compute_size(prob=..., signal=..., regime=..., roll_acc=...)
+    called a method that does not exist at all on PositionSizer. Replaced
+    with the module-level compute_position_size(p_up, calibrated_signal,
+    signal_confidence, risk_reward_ratio, regime, worth_trading) -> dict
+    with key "position_size_pct", matching position_sizer.py's actual
+    contract (same one predict.py now uses).
+  - p_up is now derived directionally from the confidence column: a
+    confidence value is "probability the direction is correct", not raw
+    P(up) — for SHORT signals this must be inverted (1 - confidence),
+    otherwise Kelly sizing would have been computed backwards for every
+    short signal.
+  - risk_reward_ratio is now computed directionally from pred_high/
+    pred_low against last_close when available (HSI always has these;
+    stocks have them only when their high/low models exist on disk);
+    falls back to a flagged neutral 1.0 for stock rows missing high/low
+    models (see daily_backtest_insample_stock()'s FIX LOG below).
+  - daily_backtest_insample_stock() now also loads
+    stock_high_model_path(ticker) / stock_low_model_path(ticker) (these
+    model artifacts already exist on disk, produced by train_model.py's
+    train_stock_models() — they were simply never wired into this backtest
+    function before), adding real pred_high/pred_low columns so
+    apply_cost_simulation() can compute a genuine risk_reward_ratio for
+    stocks too, instead of always using the 1.0 placeholder.
+  - Added missing imports: stock_high_model_path, stock_low_model_path
+    (from config) — daily_backtest_insample_stock() referenced these
+    without importing them, which would have raised NameError.
 """
 
 import sys
@@ -23,13 +55,14 @@ import lightgbm as lgb
 from config import (HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER, LGB_PARAMS,
                      PRED_DIR, STOCK_MODEL_DIR, FEATURE_LIST_PATH,
                      MODEL_CLOSE_Q50_PATH, MODEL_HIGH_PATH, MODEL_LOW_PATH,
-                     DIRECTIONAL_ACC_MIN, TRANSACTION_COST, SLIPPAGE_POINTS)
+                     DIRECTIONAL_ACC_MIN, TRANSACTION_COST, SLIPPAGE_POINTS,
+                     stock_high_model_path, stock_low_model_path)
 from data_sources import fetch_with_fallback, to_stooq_hk_code
 from features import build_features, get_numeric_feature_columns
 from labeling import build_nextday_labels, LABEL_COLUMNS
 from confidence import load_meta_model, get_signal_confidence
 from stock_universe import get_universe
-from position_sizer import PositionSizer
+from position_sizer import compute_position_size
 
 
 # ---------------------------------------------------------------------------
@@ -43,14 +76,48 @@ def apply_cost_simulation(df: pd.DataFrame, confidence_col: str = "confidence",
     df = df.copy()
     df["signal"] = np.sign(df["pred_close_return"])
 
+    has_high_low = "pred_high" in df.columns and "pred_low" in df.columns
+
     if use_position_sizing:
-        sizer = PositionSizer(kelly_fraction=0.25, max_position=1.0, min_edge=0.02)
         sizes = []
         for _, row in df.iterrows():
-            prob = row[confidence_col] if confidence_col in df.columns and pd.notna(row[confidence_col]) else 0.55
+            confidence = row[confidence_col] if confidence_col in df.columns and pd.notna(row[confidence_col]) else 0.55
             regime = row[regime_col] if regime_col and regime_col in df.columns else "NEUTRAL"
-            size = sizer.compute_size(prob=prob, signal=int(row["signal"]), regime=regime, roll_acc=0.5)
-            sizes.append(size if size > 0 else 0.0)
+            signal = int(row["signal"])
+
+            if signal > 0:
+                calibrated_signal = "LONG"
+                p_up_proxy = confidence
+            elif signal < 0:
+                calibrated_signal = "SHORT"
+                p_up_proxy = 1 - confidence
+            else:
+                calibrated_signal = "觀望"
+                p_up_proxy = 0.5
+
+            if has_high_low:
+                entry = row["last_close"]
+                if signal > 0:
+                    reward = row["pred_high"] - entry
+                    risk = entry - row["pred_low"]
+                else:
+                    reward = entry - row["pred_low"]
+                    risk = row["pred_high"] - entry
+                risk_reward_ratio = (reward / risk) if risk and risk > 0 else 1.0
+            else:
+                # Per-stock backtest rows without high/low models loaded —
+                # flagged neutral fallback, not a genuinely computed ratio.
+                risk_reward_ratio = 1.0
+
+            result = compute_position_size(
+                p_up=p_up_proxy,
+                calibrated_signal=calibrated_signal,
+                signal_confidence=confidence,
+                risk_reward_ratio=risk_reward_ratio,
+                regime=regime,
+                worth_trading=True,
+            )
+            sizes.append(result["position_size_pct"])
         df["position_size"] = sizes
     else:
         df["position_size"] = df["signal"].abs()
@@ -165,19 +232,9 @@ def daily_backtest_insample_hsi(start_date: str) -> pd.DataFrame:
 def daily_backtest_insample_stock(ticker: str, start_date: str) -> pd.DataFrame:
     """
     In-sample backtest for a single stock (constituent or watchlist ticker).
-
-    FIX LOG (this revision):
-      - Previously only loaded the close model (model_close_q50.txt),
-        leaving no way to compute a real risk_reward_ratio for position
-        sizing — apply_cost_simulation() had to fall back to a flagged
-        neutral 1.0 ratio for every stock row. Now also loads
-        stock_high_model_path(ticker) / stock_low_model_path(ticker)
-        (these models already exist on disk per config.py's helper
-        functions — they were simply never wired into this backtest
-        function) and adds pred_high / pred_low columns, matching the
-        schema daily_backtest_insample_hsi() already provides. This lets
-        apply_cost_simulation() compute a genuine direction-aware
-        risk_reward_ratio for stocks too, instead of the 1.0 placeholder.
+    Loads close AND high/low models (when available) so apply_cost_simulation()
+    can compute a genuine direction-aware risk_reward_ratio, instead of
+    always falling back to a flagged neutral 1.0.
     """
     raw = fetch_with_fallback(ticker, stooq_ticker=to_stooq_hk_code(ticker))
     if raw is None or len(raw) < 100:
@@ -204,9 +261,6 @@ def daily_backtest_insample_stock(ticker: str, start_date: str) -> pd.DataFrame:
     model_close = lgb.Booster(model_file=str(model_close_path))
     pred_close_return = model_close.predict(X)
 
-    # NEW: load high/low models — these artifacts already exist on disk
-    # (produced by train_model.py's train_stock_models()) but were
-    # previously never loaded here.
     high_path = stock_high_model_path(ticker)
     low_path = stock_low_model_path(ticker)
     has_high_low = high_path.exists() and low_path.exists()
@@ -238,7 +292,6 @@ def daily_backtest_insample_stock(ticker: str, start_date: str) -> pd.DataFrame:
         df["pred_low"] = last_close * (1 + pred_low_return)
 
     return df
-
 
 
 # ---------------------------------------------------------------------------
