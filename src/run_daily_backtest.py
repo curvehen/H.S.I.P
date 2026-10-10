@@ -235,6 +235,20 @@ def daily_backtest_insample_stock(ticker: str, start_date: str) -> pd.DataFrame:
     Loads close AND high/low models (when available) so apply_cost_simulation()
     can compute a genuine direction-aware risk_reward_ratio, instead of
     always falling back to a flagged neutral 1.0.
+
+    FIX LOG (this revision):
+      - Added pred_close, actual_close, and directional_hit columns —
+        previously only return-based columns were produced
+        (pred_close_return, actual_close_return), while
+        summarize_performance() unconditionally reads df["pred_close"] and
+        df["actual_close"] (for RMSE/MAE) and df["directional_hit"] (for
+        accuracy). This caused EVERY stock to fail with KeyError('pred_close')
+        inside summarize_performance(), silently caught by run()'s per-ticker
+        try/except — so daily_backtest_stocks.csv / backtest_stocks.csv were
+        never actually written with real data, which in turn made
+        hit_rate_tracker.py fail with KeyError('directional_hit') when it
+        tried to read that file afterwards. Both errors shared this single
+        root cause.
     """
     raw = fetch_with_fallback(ticker, stooq_ticker=to_stooq_hk_code(ticker))
     if raw is None or len(raw) < 100:
@@ -287,11 +301,19 @@ def daily_backtest_insample_stock(ticker: str, start_date: str) -> pd.DataFrame:
         "confidence": 0.55,  # per-stock backtest has no meta-confidence model wired in; neutral default
     })
 
+    # NEW: absolute price levels + directional hit — summarize_performance()
+    # and hit_rate_tracker.py both require these exact column names.
+    df["pred_close"] = df["last_close"] * (1 + df["pred_close_return"])
+    df["actual_close"] = df["last_close"] * (1 + df["actual_close_return"])
+    df["directional_hit"] = (np.sign(df["pred_close_return"]) == np.sign(df["actual_close_return"])).astype(int)
+
     if has_high_low:
         df["pred_high"] = last_close * (1 + pred_high_return)
         df["pred_low"] = last_close * (1 + pred_low_return)
 
+    df = apply_cost_simulation(df, confidence_col="confidence", use_position_sizing=True)
     return df
+
 
 
 # ---------------------------------------------------------------------------
