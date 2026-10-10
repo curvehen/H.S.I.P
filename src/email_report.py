@@ -70,12 +70,14 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+
 from config import LATEST_RESULT_PATH, PRED_DIR, HSI_TICKER, DASHSCOPE_MODEL_NAME
 from hit_rate_tracker import get_hit_rate
 from market_hours import HKT
 # Reused rather than re-derived, to keep the email and the signal text in
 # agreement on direction/verdict/reason (see FIX LOG).
-from signal_generator import _determine_calibrated_signal, _build_worth_trading_reason
+
+from signal_generator import _build_worth_trading_reason  # calibrated_signal no longer re-derived here
 
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
@@ -149,7 +151,7 @@ def build_hsi_section(result: dict) -> str:
     coverage_weight = sum(s.get("weight", 0) for s in stock_predictions)
 
     hit_rate = _safe_hit_rate(HSI_TICKER)
-    position_pct = result.get("position_pct")
+    position_pct = result.get("position_size_pct")
     position_row = (f'<tr><td>建議倉位 (Fractional Kelly)</td><td>{position_pct:.2%}</td></tr>'
                      if position_pct is not None else "")
 
