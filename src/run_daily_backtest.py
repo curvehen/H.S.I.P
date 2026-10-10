@@ -163,50 +163,82 @@ def daily_backtest_insample_hsi(start_date: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def daily_backtest_insample_stock(ticker: str, start_date: str) -> pd.DataFrame:
-    model_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"
-    feat_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_features.json"
+    """
+    In-sample backtest for a single stock (constituent or watchlist ticker).
 
-    if not model_path.exists() or not feat_path.exists():
+    FIX LOG (this revision):
+      - Previously only loaded the close model (model_close_q50.txt),
+        leaving no way to compute a real risk_reward_ratio for position
+        sizing — apply_cost_simulation() had to fall back to a flagged
+        neutral 1.0 ratio for every stock row. Now also loads
+        stock_high_model_path(ticker) / stock_low_model_path(ticker)
+        (these models already exist on disk per config.py's helper
+        functions — they were simply never wired into this backtest
+        function) and adds pred_high / pred_low columns, matching the
+        schema daily_backtest_insample_hsi() already provides. This lets
+        apply_cost_simulation() compute a genuine direction-aware
+        risk_reward_ratio for stocks too, instead of the 1.0 placeholder.
+    """
+    raw = fetch_with_fallback(ticker, stooq_ticker=to_stooq_hk_code(ticker))
+    if raw is None or len(raw) < 100:
         return pd.DataFrame()
 
-    stooq_code = to_stooq_hk_code(ticker)
-    raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
-    feat_df = build_features(raw, ccass_change=0.0, stock_sentiment=0.0,
-                              ticker=ticker, include_macro=False)
+    feat_df = build_features(raw, us_futures=None, vix=None,
+                              ccass_change=0.0, market_sentiment=0.0,
+                              stock_sentiment=0.0, ticker=ticker, include_macro=False)
     labeled_df = build_nextday_labels(feat_df)
+    labeled_df = labeled_df[labeled_df.index >= pd.to_datetime(start_date)]
+    if len(labeled_df) == 0:
+        return pd.DataFrame()
+
+    feat_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_features.json"
+    model_close_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"
+    if not feat_path.exists() or not model_close_path.exists():
+        return pd.DataFrame()
 
     with open(feat_path) as f:
         feature_cols = json.load(f)
-    for col in feature_cols:
-        if col not in labeled_df.columns:
-            labeled_df[col] = 0
-    X_all = labeled_df[feature_cols].astype(float)
 
-    mask = labeled_df.index >= pd.Timestamp(start_date)
-    subset = labeled_df[mask]
-    X_subset = X_all[mask]
+    X = labeled_df.reindex(columns=feature_cols, fill_value=0).astype(float)
 
-    if subset.empty:
-        return pd.DataFrame()
+    model_close = lgb.Booster(model_file=str(model_close_path))
+    pred_close_return = model_close.predict(X)
 
-    model = lgb.Booster(model_file=str(model_path))
-    pred_close_return = model.predict(X_subset)
+    # NEW: load high/low models — these artifacts already exist on disk
+    # (produced by train_model.py's train_stock_models()) but were
+    # previously never loaded here.
+    high_path = stock_high_model_path(ticker)
+    low_path = stock_low_model_path(ticker)
+    has_high_low = high_path.exists() and low_path.exists()
+
+    if has_high_low:
+        model_high = lgb.Booster(model_file=str(high_path))
+        model_low = lgb.Booster(model_file=str(low_path))
+        pred_high_return = model_high.predict(X)
+        pred_low_return = model_low.predict(X)
+    else:
+        print(f"run_daily_backtest: high/low models not found for {ticker} — "
+              f"risk_reward_ratio for this ticker will fall back to the neutral 1.0 default.")
+        pred_high_return = None
+        pred_low_return = None
+
+    last_close = labeled_df["Close"].values if "Close" in labeled_df.columns else raw.loc[labeled_df.index, "Close"].values
 
     df = pd.DataFrame({
-        "date": subset.index,
+        "date": labeled_df.index,
         "ticker": ticker,
-        "last_close": subset["Close"].values,
+        "last_close": last_close,
         "pred_close_return": pred_close_return,
-        "actual_close_return": subset["next_close_return"].values,
+        "actual_close_return": labeled_df["next_close_return"].values,
+        "confidence": 0.55,  # per-stock backtest has no meta-confidence model wired in; neutral default
     })
-    df["pred_close"] = df["last_close"] * (1 + df["pred_close_return"])
-    df["actual_close"] = df["last_close"] * (1 + df["actual_close_return"])
-    df["directional_hit"] = (np.sign(df["pred_close_return"]) == np.sign(df["actual_close_return"])).astype(int)
 
-    # No confidence column at per-stock level — apply_cost_simulation falls back
-    # to a neutral 0.55 default internally.
-    df = apply_cost_simulation(df, confidence_col="confidence", use_position_sizing=True)
+    if has_high_low:
+        df["pred_high"] = last_close * (1 + pred_high_return)
+        df["pred_low"] = last_close * (1 + pred_low_return)
+
     return df
+
 
 
 # ---------------------------------------------------------------------------
