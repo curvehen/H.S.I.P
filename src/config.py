@@ -147,6 +147,8 @@ DYNAMIC_WEIGHTS_PATH = MODEL_DIR / "dynamic_ensemble_weights.json"
 DYNAMIC_WEIGHT_ROLLING_WINDOW = 60      # trailing trading days kept per sub-model
 DYNAMIC_WEIGHT_MIN_SAMPLES = 10         # min live days before trusting dynamic over static weights
 DYNAMIC_WEIGHT_PROB_SCALE = 0.01        # logistic steepness for return->prob-up transform
+DYNAMIC_WEIGHT_MIN_HISTORY = 15
+DYNAMIC_WEIGHT_SIGMOID_K = 50
 
 # =============================================================================
 # NEW — ENH#3: Fractional Kelly position sizing (position_sizer.py)
