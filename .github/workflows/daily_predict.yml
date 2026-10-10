@@ -2,11 +2,30 @@ name: Daily HSI Predict & Monitor
 
 on:
   schedule:
-    - cron: '0 11 * * 1-5'   # UTC 11:00 = 香港時間 19:00，週一至五
-  workflow_dispatch:          # 容許人手手動觸發補跑
+    - cron: '0 11 * * 1-5'   # UTC 11:00 = 香港時間 19:00(週一至五)— PRELIMINARY run
+    - cron: '0 20 * * 0-4'   # UTC 20:00(週日至四)= 香港時間 04:00(週一至五)— OFFICIAL run
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: '手動觸發時指定執行模式'
+        required: true
+        type: choice
+        default: 'official'
+        options:
+          - official
+          - preliminary
 
 jobs:
-  predict:
+  # ===========================================================================
+  # PRELIMINARY run — 7pm HKT scouting signal. No logging, no retrain checks,
+  # no backtest. Only generates + emails a clearly-labeled "初步方向,非交易
+  # 信號" preview. Triggered by the 11:00 UTC cron, or manual dispatch with
+  # run_mode=preliminary.
+  # ===========================================================================
+  predict_preliminary:
+    if: >
+      github.event.schedule == '0 11 * * 1-5' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_mode == 'preliminary')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -31,6 +50,59 @@ jobs:
           tar -xzf ta-lib-0.4.0-src.tar.gz
           cd ta-lib && ./configure --prefix=/usr && make && sudo make install
 
+      - name: Install TA-Lib Python wrapper
+        run: pip install TA-Lib
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run preliminary prediction (no logging)
+        working-directory: src
+        env:
+          RUN_MODE: preliminary
+        run: python predict.py
+
+      - name: Generate preliminary trading signal (labeled, non-binding)
+        working-directory: src
+        env:
+          RUN_MODE: preliminary
+        run: python signal_generator.py
+
+      - name: Send preliminary email (must display "初步方向,非交易信號")
+        working-directory: src
+        env:
+          RUN_MODE: preliminary
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: python email_report.py
+
+  # ===========================================================================
+  # OFFICIAL run — 4am HKT. Full pipeline: logging, feature snapshot, drift
+  # evaluation, backtest, hit-rate tracking, retrain gate, dashboard + email.
+  # Triggered by the 20:00 UTC cron, or manual dispatch with run_mode=official
+  # (also the default for any unmatched manual dispatch).
+  # ===========================================================================
+  predict_official:
+    if: >
+      github.event.schedule == '0 20 * * 0-4' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_mode == 'official')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+
       - name: Install TA-Lib system dependency
         run: |
           sudo apt-get update
@@ -45,15 +117,16 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run prediction
+      - name: Run official prediction (logs + feature snapshot)
         working-directory: src
+        env:
+          RUN_MODE: official
         run: python predict.py
 
-      - name: Generate trading signal
+      - name: Generate official trading signal
         working-directory: src
+        env:
+          RUN_MODE: official
         run: python signal_generator.py
 
       - name: Run drift evaluation
@@ -63,8 +136,8 @@ jobs:
       - name: Run daily backtest (for hit rate data)
         working-directory: src
         run: python run_daily_backtest.py
-        
-      - name: Update hit rate tracker          # <-- 新加呢個 step
+
+      - name: Update hit rate tracker
         working-directory: src
         run: python hit_rate_tracker.py
 
@@ -103,6 +176,7 @@ jobs:
       - name: Generate and send dashboard report
         working-directory: src
         env:
+          RUN_MODE: official
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
@@ -112,15 +186,8 @@ jobs:
       - name: Send email report
         working-directory: src
         env:
+          RUN_MODE: official
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
         run: python email_report.py
-        
-      - name: Generate and send dashboard report          # <-- 新加
-        working-directory: src
-        env:
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
-        run: python dashboard_report.py
