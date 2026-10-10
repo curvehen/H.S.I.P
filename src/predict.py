@@ -147,8 +147,9 @@ def predict_hsi():
     pred_close_q90 = float(m_close_q90.predict(X_latest)[0])
     pred_high = float(m_high.predict(X_latest)[0])
     pred_low = float(m_low.predict(X_latest)[0])
-
-    sub_preds = ensemble.predict_submodels(X_latest)
+  
+    sub_preds = ensemble.predict_submodels_loaded(X_latest)
+    static_weights = ensemble.weights  # 鍵名已經係 "lgb"/"rf"/"ridge",同 sub_preds 一致,冇需要再轉換
     static_weights = ensemble.weights
 
     if _DYNAMIC_WEIGHTING_AVAILABLE:
@@ -506,8 +507,8 @@ def log_prediction(result: dict):
         "risk_reward_ratio": result["risk_reward_ratio"],
         "position_size_pct": result["position_size_pct"],
         "ensemble_weight_source": result["ensemble_weight_source"],
-        "sub_pred_lightgbm": result["sub_model_preds"].get("lightgbm"),
-        "sub_pred_random_forest": result["sub_model_preds"].get("random_forest"),
+        "sub_pred_lgb": result["sub_model_preds"].get("lgb"),
+        "sub_pred_rf": result["sub_model_preds"].get("rf"),
         "sub_pred_ridge": result["sub_model_preds"].get("ridge"),
         "actual_close": None,
     }
