@@ -80,7 +80,29 @@ from market_hours import HKT
 from signal_generator import _build_worth_trading_reason  # calibrated_signal no longer re-derived here
 
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+# SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+EMAIL_TO = os.environ.get("EMAIL_TO")
+
+def _get_smtp_port(default: int = 587) -> int:
+    """os.environ.get(key, default) only falls back when the key is
+    completely absent — if the GitHub secret exists but was left empty,
+    os.environ.get("SMTP_PORT", "587") still returns "" (not "587"),
+    and int("") raises ValueError. This treats an empty/whitespace string
+    the same as a missing variable."""
+    raw = os.environ.get("SMTP_PORT", "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"email_report: SMTP_PORT='{raw}' is not a valid integer — falling back to {default}.")
+        return default
+
+
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = _get_smtp_port()
 SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
 EMAIL_TO = os.environ.get("EMAIL_TO")
@@ -382,6 +404,7 @@ def _load_result() -> dict:
         )
     with open(result_path) as f:
         return json.load(f)
+
 
 
 if __name__ == "__main__":
