@@ -36,7 +36,7 @@ from config import (MODEL_CLOSE_Q10_PATH, MODEL_CLOSE_Q50_PATH, MODEL_CLOSE_Q90_
                      MODEL_HIGH_PATH, MODEL_LOW_PATH, FEATURE_LIST_PATH, PRED_LOG_PATH,
                      STOCK_MODEL_DIR, HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER,
                      MIN_EXPECTED_MOVE_PCT, MIN_CONFIDENCE, HSI_PROB_MODEL_PATH,
-                     stock_prob_model_path, stock_high_model_path, stock_low_model_path)
+                     stock_prob_model_path, stock_high_model_path, stock_low_model_path,LATEST_RESULT_PATH)
 from data_sources import fetch_with_fallback, to_stooq_hk_code
 from features import build_features
 from labeling import LABEL_COLUMNS
@@ -52,6 +52,7 @@ from market_hours import get_latest_usable_row, get_next_trading_day
 import os
 from market_hours import HKT
 from datetime import datetime as _dt
+
 
 # ---------------------------------------------------------------------------
 # NEW: optional ENH modules — every one of them is wrapped so a missing file,
@@ -456,12 +457,33 @@ def run_daily_prediction(run_mode: str = None):
 # Logging (UPDATED: now persists raw sub-model preds + weight source, so
 # evaluate_drift.py can compute each sub-model's Brier score and feed
 # dynamic_ensemble_weighter.py the next day)
+#
+# FIX LOG (this revision):
+#   - Preliminary runs (run_mode != "official") previously returned
+#     immediately without writing ANY file, which broke signal_generator.py
+#     and email_report.py downstream — they had nothing to read for the
+#     7pm HKT preliminary signal. Now writes a SEPARATE, clearly-isolated
+#     snapshot file (PRED_DIR / "latest_preliminary_result.json") so the
+#     preliminary pipeline has data to consume, while still guaranteeing
+#     ZERO writes to PRED_LOG_PATH (CSV) or LATEST_RESULT_PATH (official
+#     JSON) — those remain official-only, per the original requirement that
+#     preliminary runs must not pollute official historical records.
 # ---------------------------------------------------------------------------
 
 def log_prediction(result: dict):
+    from config import LATEST_RESULT_PATH, PRED_DIR
+
     if result.get("run_mode") != "official":
-        print(f"predict: run_mode='{result.get('run_mode')}' (preliminary) — "
-              f"skipping CSV log / latest_result.json write.")
+        preliminary_path = PRED_DIR / "latest_preliminary_result.json"
+        try:
+            with open(preliminary_path, "w") as f:
+                json.dump(result, f, indent=2, default=str)
+            print(f"predict: run_mode='{result.get('run_mode')}' (preliminary) — "
+                  f"wrote preview snapshot to {preliminary_path}. "
+                  f"CSV log / official latest_result.json were NOT touched.")
+        except Exception as e:
+            print(f"predict: failed to write preliminary snapshot ({e}) — "
+                  f"preliminary email/signal step will have no data to read.")
         return
 
     row = {
@@ -489,10 +511,8 @@ def log_prediction(result: dict):
     else:
         df_row.to_csv(PRED_LOG_PATH, mode="w", header=True, index=False)
 
-    from config import LATEST_RESULT_PATH
     with open(LATEST_RESULT_PATH, "w") as f:
         json.dump(result, f, indent=2, default=str)
-
 
 
 if __name__ == "__main__":
