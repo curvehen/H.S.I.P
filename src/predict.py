@@ -19,24 +19,57 @@ INFERENCE SCRIPT — run daily by GitHub Actions. CPU-only, lightweight.
    the pipeline.
 9. Outputs entry/high/low/close + worth-trading verdict + position size.
 10. Appends everything (incl. raw sub-model predictions, for next day's
-    dynamic weight update by evaluate_drift.py) to the prediction log.
+    dynamic weight update by evaluate_drift.py) to the prediction log —
+    OFFICIAL runs only; PRELIMINARY runs write a separate, isolated
+    preview snapshot instead (see log_prediction()).
 
 Generates: P(up)/P(down), signal strength, regime, HSI high/low/close,
-range stats, position sizing, per-stock prediction table with hit rates,
-watchlist table, and optional LLM commentary.
+estimated next-open entry price, range stats, position sizing, per-stock
+prediction table with hit rates, watchlist table, and optional LLM
+commentary.
+
+FIX LOG (accumulated across this review):
+  - Added dual run-time support: run_mode is resolved via determine_run_mode()
+    (RUN_MODE env var set by daily_predict.yml's two cron jobs takes
+    priority; HKT wall-clock is a local/manual-run fallback only).
+  - log_prediction() is now run_mode-aware: official runs write PRED_LOG_PATH
+    (CSV) + LATEST_RESULT_PATH as before; preliminary runs write ONLY to a
+    separate PRED_DIR/latest_preliminary_result.json, guaranteeing zero
+    writes to any official historical record.
+  - predict_hsi() now also returns feature_snapshot_row (the exact feature
+    row used for this prediction), consumed by run_daily_prediction() to
+    persist an official-run-only feature snapshot to SNAPSHOT_DIR, for
+    future drift/backtest reproducibility analysis.
+  - predict_hsi() now also returns estimated_entry_price + gap_model_status,
+    wiring in the previously-unused gap_estimator.py + macro_features.py
+    overnight-gap estimation chain, so signal_generator.py / email_report.py
+    have a real next-open estimate instead of falling back to last_close.
+    This call is wrapped fail-safe: any exception degrades to
+    estimated_entry_price=None, gap_model_status="ERROR", last_close is
+    used as the downstream fallback by consumers — it does NOT raise or
+    block the main prediction pipeline.
+  - LLM commentary/summary calls (generate_market_commentary,
+    generate_stock_summaries_batch) are now called AFTER the `result` dict
+    is fully assembled, since they read real fields directly off of it
+    (confirmed against llm_analysis.py's actual field usage).
+  - Import corrected: generate_daily_commentary (nonexistent) ->
+    generate_market_commentary, generate_stock_summaries_batch.
 """
 
 import json
 import datetime
+import os
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
+
+from datetime import datetime as _dt
 
 from config import (MODEL_CLOSE_Q10_PATH, MODEL_CLOSE_Q50_PATH, MODEL_CLOSE_Q90_PATH,
                      MODEL_HIGH_PATH, MODEL_LOW_PATH, FEATURE_LIST_PATH, PRED_LOG_PATH,
                      STOCK_MODEL_DIR, HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER,
                      MIN_EXPECTED_MOVE_PCT, MIN_CONFIDENCE, HSI_PROB_MODEL_PATH,
-                     stock_prob_model_path, stock_high_model_path, stock_low_model_path,LATEST_RESULT_PATH)
+                     stock_prob_model_path, stock_high_model_path, stock_low_model_path)
 from data_sources import fetch_with_fallback, to_stooq_hk_code
 from features import build_features
 from labeling import LABEL_COLUMNS
@@ -48,11 +81,21 @@ from regime import detect_regime
 from probability_model import load_probability_model, predict_probability_up, classify_signal_strength
 from hit_rate_tracker import get_hit_rate
 from ccass_scraper import get_ccass_change
-from market_hours import get_latest_usable_row, get_next_trading_day
-import os
-from market_hours import HKT
-from datetime import datetime as _dt
+from market_hours import get_latest_usable_row, get_next_trading_day, HKT
 
+# ---------------------------------------------------------------------------
+# NEW: overnight gap estimation chain (previously defined but never wired
+# into the prediction pipeline). Produces estimated_entry_price for
+# signal_generator.py / email_report.py's risk-reward calculations.
+# ---------------------------------------------------------------------------
+try:
+    from macro_features import get_market_overnight_return
+    from gap_estimator import load_gap_model, estimate_next_open_price
+    _GAP_ESTIMATOR_AVAILABLE = True
+except ImportError:
+    _GAP_ESTIMATOR_AVAILABLE = False
+    print("predict: gap_estimator/macro_features not available — "
+          "estimated_entry_price will be omitted (consumers fall back to last_close).")
 
 # ---------------------------------------------------------------------------
 # NEW: optional ENH modules — every one of them is wrapped so a missing file,
@@ -83,6 +126,11 @@ except ImportError:
 # ENH#3 — fractional Kelly position sizing.
 #   Contract: compute_position_size(p_up: float, confidence: float,
 #   expected_move_pct: float) -> dict with keys "position_pct", "kelly_raw", "reason".
+#   KNOWN OPEN ISSUE: position_sizer.py's ACTUAL signature is
+#   compute_position_size(p_up, calibrated_signal, signal_confidence,
+#   risk_reward_ratio, regime, worth_trading) — this call site has NOT yet
+#   been corrected to match (pending risk_reward_ratio / calibrated_signal
+#   being computed here first; tracked separately, not fixed in this pass).
 try:
     from position_sizer import compute_position_size
     _POSITION_SIZING_AVAILABLE = True
@@ -91,7 +139,8 @@ except ImportError:
     print("predict: position_sizer not available — position sizing will be omitted from output.")
 
 # LLM commentary (DashScope-compatible).
-#   Contract: generate_daily_commentary(context: dict) -> str | None.
+#   Contract: generate_market_commentary(result: dict) -> str | None.
+#   generate_stock_summaries_batch(stocks: list, max_stocks=None) -> dict.
 #   Must internally respect config.LLM_ANALYSIS_ENABLED and
 #   config.LLM_REQUEST_TIMEOUT_SECONDS, returning None on any failure/timeout.
 try:
@@ -102,7 +151,7 @@ except ImportError:
     print("predict: llm_analysis not available — no commentary will be generated.")
 
 
-def determine_run_mode(now: datetime = None) -> str:
+def determine_run_mode(now: _dt = None) -> str:
     """
     Decides whether this execution is 'preliminary' (7pm HKT scouting run,
     no logging) or 'official' (4am HKT run, full logging + snapshot).
@@ -117,7 +166,8 @@ def determine_run_mode(now: datetime = None) -> str:
     if 18 <= hour < 21:
         return "preliminary"
     return "official"
-   
+
+
 def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
     for col in feature_cols:
         if col not in latest_row.columns:
@@ -126,7 +176,7 @@ def align_features(latest_row: pd.DataFrame, feature_cols: list) -> pd.DataFrame
 
 
 # ---------------------------------------------------------------------------
-# HSI direct prediction (UPDATED for ENH#2)
+# HSI direct prediction (UPDATED for ENH#2 + overnight gap estimation)
 # ---------------------------------------------------------------------------
 
 def predict_hsi():
@@ -162,7 +212,7 @@ def predict_hsi():
     sub_preds = ensemble.predict_submodels(X_latest)  # {"lightgbm": v, "random_forest": v, "ridge": v}
     static_weights = ensemble.weights  # {"lightgbm": w, "random_forest": w, "ridge": w}
 
-    # ---- NEW (ENH#2): dynamic Brier-score weight blending ----
+    # ---- ENH#2: dynamic Brier-score weight blending ----
     if _DYNAMIC_WEIGHTING_AVAILABLE:
         try:
             effective_weights, weight_source = get_effective_weights(static_weights)
@@ -186,6 +236,21 @@ def predict_hsi():
     last_close = float(raw["Close"].iloc[-1])
     expected_move_pct = abs(pred_close_q50)
 
+    # ---- NEW: overnight gap-based next-open entry price estimate ----
+    estimated_entry_price = None
+    gap_model_status = "UNAVAILABLE"
+    if _GAP_ESTIMATOR_AVAILABLE:
+        try:
+            us_overnight_return = get_market_overnight_return(US_FUTURES_TICKER)
+            gap_model = load_gap_model()
+            estimated_entry_price = estimate_next_open_price(last_close, us_overnight_return, gap_model)
+            gap_model_status = gap_model.get("status", "UNKNOWN")
+        except Exception as e:
+            print(f"predict: overnight gap estimation failed ({e}) — "
+                  f"estimated_entry_price omitted, consumers should fall back to last_close.")
+            estimated_entry_price = None
+            gap_model_status = "ERROR"
+
     return {
         "ticker": HSI_TICKER,
         "session": session,
@@ -203,7 +268,9 @@ def predict_hsi():
         "sub_model_preds": sub_preds,
         "ensemble_weights_used": effective_weights,
         "ensemble_weight_source": weight_source,
-        "feature_snapshot_row": latest_row,   # NEW: exposes the feature row used for this prediction, for official-run drift/backtest snapshotting
+        "feature_snapshot_row": latest_row,
+        "estimated_entry_price": estimated_entry_price,
+        "gap_model_status": gap_model_status,
     }
 
 
@@ -369,6 +436,15 @@ def run_daily_prediction(run_mode: str = None):
     verdict = compute_verdict(hsi_direct["expected_move_pct"], hsi_direct["confidence"], hsi_direct["regime"])
 
     print("[5/7] Computing fractional-Kelly position size (ENH#3)...")
+    # KNOWN OPEN ISSUE: position_sizer.compute_position_size()'s actual
+    # signature requires calibrated_signal, signal_confidence, and
+    # risk_reward_ratio — this call site still passes the OLD/incorrect
+    # argument set (confidence=, expected_move_pct=) and will raise
+    # TypeError on every call, silently caught below and masked as
+    # position_pct=0.0. This is a tracked, NOT-yet-fixed bug — flagged here
+    # rather than silently left undocumented, pending a decision on how
+    # calibrated_signal / risk_reward_ratio should be computed at this
+    # point in the pipeline (see prior review notes).
     position = {"position_pct": 0.0, "kelly_raw": 0.0, "reason": "position_sizer unavailable"}
     if _POSITION_SIZING_AVAILABLE and verdict["worth_trading"]:
         try:
@@ -378,7 +454,9 @@ def run_daily_prediction(run_mode: str = None):
                 expected_move_pct=hsi_direct["expected_move_pct"],
             )
         except Exception as e:
-            print(f"predict: position sizing failed ({e}) — defaulting to 0% size.")
+            print(f"predict: position sizing failed ({e}) — defaulting to 0% size. "
+                  f"NOTE: this call signature is known to be misaligned with "
+                  f"position_sizer.py's actual function contract — see FIX LOG.")
             position = {"position_pct": 0.0, "kelly_raw": 0.0, "reason": f"error: {e}"}
     elif not verdict["worth_trading"]:
         position = {"position_pct": 0.0, "kelly_raw": 0.0, "reason": "verdict=not worth trading"}
@@ -386,13 +464,15 @@ def run_daily_prediction(run_mode: str = None):
     print("[6/7] Generating watchlist predictions (1211.HK, 0968.HK)...")
     watchlist_rows = predict_watchlist()
 
-    # ---- Assemble result dict FIRST (moved ahead of LLM step, since the
-    #      corrected LLM functions read real fields off this dict directly) ----
+    # ---- Assemble result dict FIRST (LLM calls read real fields off of it
+    #      directly, so it must be fully built before step 7) ----
     result = {
         "date": today.isoformat(),
         "run_mode": run_mode,
         "session": hsi_direct["session"],
         "last_close": hsi_direct["last_close"],
+        "estimated_entry_price": hsi_direct["estimated_entry_price"],
+        "gap_model_status": hsi_direct["gap_model_status"],
         "pred_close_return_blended": blended_return,
         "pred_close_price": pred_close_price,
         "pred_high_price": pred_high_price,
@@ -431,7 +511,7 @@ def run_daily_prediction(run_mode: str = None):
         except Exception as e:
             print(f"predict: stock LLM summaries failed ({e}) — summaries omitted.")
 
-    # ---- NEW: feature snapshot, official runs only (4am HKT) ----
+    # ---- Feature snapshot, official runs only (4am HKT) ----
     if run_mode == "official":
         try:
             from config import SNAPSHOT_DIR
@@ -442,7 +522,9 @@ def run_daily_prediction(run_mode: str = None):
         except Exception as e:
             print(f"predict: feature snapshot save failed ({e}) — skipped, non-fatal.")
 
-    # ---- log_prediction() internally no-ops for preliminary runs ----
+    # ---- log_prediction() internally branches on run_mode: official writes
+    #      CSV + LATEST_RESULT_PATH; preliminary writes an isolated preview
+    #      snapshot only (see FIX LOG) ----
     log_prediction(result)
 
     print("=== Daily prediction complete ===")
@@ -452,22 +534,16 @@ def run_daily_prediction(run_mode: str = None):
     return result
 
 
-
 # ---------------------------------------------------------------------------
 # Logging (UPDATED: now persists raw sub-model preds + weight source, so
 # evaluate_drift.py can compute each sub-model's Brier score and feed
 # dynamic_ensemble_weighter.py the next day)
 #
-# FIX LOG (this revision):
-#   - Preliminary runs (run_mode != "official") previously returned
-#     immediately without writing ANY file, which broke signal_generator.py
-#     and email_report.py downstream — they had nothing to read for the
-#     7pm HKT preliminary signal. Now writes a SEPARATE, clearly-isolated
-#     snapshot file (PRED_DIR / "latest_preliminary_result.json") so the
-#     preliminary pipeline has data to consume, while still guaranteeing
-#     ZERO writes to PRED_LOG_PATH (CSV) or LATEST_RESULT_PATH (official
-#     JSON) — those remain official-only, per the original requirement that
-#     preliminary runs must not pollute official historical records.
+# FIX LOG: preliminary runs now write an isolated preview snapshot
+# (PRED_DIR/latest_preliminary_result.json) instead of writing nothing at
+# all — signal_generator.py and email_report.py both read this exact path
+# when RUN_MODE=preliminary. Official records (PRED_LOG_PATH CSV,
+# LATEST_RESULT_PATH) remain untouched by preliminary runs.
 # ---------------------------------------------------------------------------
 
 def log_prediction(result: dict):
@@ -489,6 +565,7 @@ def log_prediction(result: dict):
     row = {
         "date": result["date"],
         "last_close": result["last_close"],
+        "estimated_entry_price": result.get("estimated_entry_price"),
         "pred_close_return_blended": result["pred_close_return_blended"],
         "pred_close_price": result["pred_close_price"],
         "pred_high_price": result["pred_high_price"],
