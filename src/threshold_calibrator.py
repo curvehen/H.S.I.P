@@ -1,207 +1,187 @@
 """
-Regime-Based Threshold Calibrator (ENH#1)
+threshold_calibrator.py — ENH#1
 
-Rationale: a single global (MIN_EXPECTED_MOVE_PCT, MIN_CONFIDENCE) pair is
-sub-optimal because the model's directional reliability differs by market
-regime (BULL/BEAR/NEUTRAL) — e.g. the model may be reliably directional in
-BULL regimes even on small predicted moves, but need a much higher bar in
-NEUTRAL/choppy regimes to avoid false signals.
+Regime-specific trading threshold calibration via out-of-fold (OOF) F1-score
+grid search.
 
-This module fits one (expected_move_threshold, confidence_threshold) pair
-PER REGIME by grid-searching for the combination that maximizes F1 score on
-out-of-fold (OOF) predictions — never on in-sample fitted values, which
-would make thresholds look artificially good.
+Rationale
+---------
+A single global (MIN_EXPECTED_MOVE_PCT, MIN_CONFIDENCE) pair is a crude
+approximation: a BULL regime with persistent momentum may support firing at
+a lower confidence bar than a choppy NEUTRAL regime, where false positives
+are far more costly. This module fits a SEPARATE threshold pair per market
+regime (BULL / BEAR / NEUTRAL), each one chosen to maximize the F1 score of
+the "fire-and-hit" binary classification problem defined below, evaluated
+on genuinely out-of-fold predictions (never in-sample — see
+train_model.generate_oof_predictions()).
 
-F1 definition used here:
-  - "label" (ground truth, positive class) = 1 if the model's raw directional
-    call was correct that day (sign(pred_return) == sign(actual_return)),
-    regardless of whether a signal would have been issued. This represents
-    "a day where taking this trade direction would have been a win".
-  - "prediction" = 1 if a signal WOULD be issued under the candidate
-    thresholds (|pred_return| >= move_threshold AND confidence >=
-    confidence_threshold).
-  - TP = correct call AND signal issued (a win we captured)
-  - FP = wrong call AND signal issued (a loss we took)
-  - FN = correct call AND signal NOT issued (a win we missed by being too strict)
-  - TN = wrong call AND signal NOT issued (a loss we correctly avoided)
-  F1 = 2*TP / (2*TP + FP + FN)
+Binary classification framing
+------------------------------
+For a candidate threshold pair (move_thresh, conf_thresh):
+    fires      = (expected_move_pct >= move_thresh) and (confidence >= conf_thresh)
+    TP = fires & actual_hit
+    FP = fires & not actual_hit
+    FN = not fires & actual_hit
+    precision = TP / (TP + FP)   -> "when we fire, how often are we right"
+    recall    = TP / (TP + FN)   -> "of all winnable days, how many did we take"
+    F1        = 2 * precision * recall / (precision + recall)
 
-This balances capturing winning days (recall) against avoiding false
-signals (precision) — directly optimizing for trading usefulness rather
-than raw accuracy.
+We search a grid of move_thresh values (percentiles of that regime's
+expected_move_pct distribution) x conf_thresh values (percentiles of that
+regime's confidence distribution), and keep the pair maximizing F1 — subject
+to a minimum-fired-trades floor so a degenerate threshold that only fires on
+1-2 lucky rows can't "win" with an artificially perfect F1.
+
+Fail-safe behaviour
+--------------------
+- A regime with fewer than REGIME_CALIBRATION_MIN_SAMPLES_PER_REGIME OOF
+  rows is NOT calibrated: it falls back to the static global
+  MIN_EXPECTED_MOVE_PCT / MIN_CONFIDENCE values (REGIME_CALIBRATION_FALLBACK).
+- If no threshold pair in the grid clears the min-fired-trades floor, that
+  regime also falls back to the static global defaults.
+- If the thresholds file does not exist yet (never calibrated), or is
+  corrupted / unreadable, get_regime_threshold() also returns the static
+  global fallback — predict.py never crashes because of this module.
 """
 
 import json
 import numpy as np
 import pandas as pd
 
-from config import MIN_EXPECTED_MOVE_PCT, MIN_CONFIDENCE, REGIME_THRESHOLDS_PATH
+from config import (REGIME_THRESHOLDS_PATH, REGIME_CALIBRATION_MIN_SAMPLES_PER_REGIME,
+                     REGIME_CALIBRATION_F1_GRID_STEPS, REGIME_CALIBRATION_FALLBACK)
 
-VALID_REGIMES = ["BULL", "BEAR", "NEUTRAL"]
-
-# Grid search ranges — centered around the existing global defaults so the
-# calibrated per-regime values stay in a sane, interpretable neighborhood.
-MOVE_THRESHOLD_GRID = np.round(np.arange(0.002, 0.0161, 0.001), 4)       # 0.2% .. 1.6%
-CONFIDENCE_THRESHOLD_GRID = np.round(np.arange(0.50, 0.91, 0.05), 2)     # 0.50 .. 0.90
-
-MIN_SAMPLES_PER_REGIME = 40  # below this, fall back to global defaults — too
-                              # few OOF samples to trust a regime-specific fit
+KNOWN_REGIMES = ["BULL", "BEAR", "NEUTRAL"]
 
 
-def _f1_for_thresholds(pred_return: np.ndarray, actual_return: np.ndarray,
-                        confidence: np.ndarray, move_thr: float, conf_thr: float) -> float:
-    """Computes F1 score for one candidate (move_thr, conf_thr) pair over a
-    regime's OOF sample, per the TP/FP/FN/TN definition above."""
-    label = (np.sign(pred_return) == np.sign(actual_return)).astype(int)
-    issued = ((np.abs(pred_return) >= move_thr) & (confidence >= conf_thr)).astype(int)
+def _f1_for_threshold(df: pd.DataFrame, move_thresh: float, conf_thresh: float) -> dict:
+    fires = (df["expected_move_pct"] >= move_thresh) & (df["confidence"] >= conf_thresh)
+    hit = df["actual_hit"].astype(bool)
 
-    tp = int(np.sum((label == 1) & (issued == 1)))
-    fp = int(np.sum((label == 0) & (issued == 1)))
-    fn = int(np.sum((label == 1) & (issued == 0)))
+    tp = int((fires & hit).sum())
+    fp = int((fires & ~hit).sum())
+    fn = int((~fires & hit).sum())
 
-    denom = (2 * tp + fp + fn)
-    if denom == 0:
-        return 0.0
-    return (2 * tp) / denom
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+
+    return {"f1": f1, "precision": precision, "recall": recall, "n_fired": int(fires.sum())}
 
 
-def _grid_search_regime(regime_df: pd.DataFrame) -> dict:
-    """Exhaustive grid search over MOVE_THRESHOLD_GRID x CONFIDENCE_THRESHOLD_GRID
-    for a single regime's OOF subset. Returns the best-F1 threshold pair plus
-    diagnostic counts."""
-    pred_return = regime_df["pred_return"].values
-    actual_return = regime_df["actual_return"].values
-    confidence = regime_df["confidence"].values
+def _calibrate_single_regime(df_regime: pd.DataFrame) -> dict:
+    """Grid-searches (move_thresh, conf_thresh) for a single regime's OOF
+    slice, returning the F1-maximizing pair plus its diagnostic metrics."""
+    n_steps = REGIME_CALIBRATION_F1_GRID_STEPS
 
-    best = {"move_threshold": MIN_EXPECTED_MOVE_PCT, "confidence_threshold": MIN_CONFIDENCE,
-            "f1_score": -1.0, "n_signals_issued": 0}
+    move_grid = np.unique(np.quantile(df_regime["expected_move_pct"],
+                                       np.linspace(0.05, 0.95, n_steps)))
+    conf_grid = np.unique(np.quantile(df_regime["confidence"],
+                                       np.linspace(0.05, 0.95, n_steps)))
 
-    for move_thr in MOVE_THRESHOLD_GRID:
-        for conf_thr in CONFIDENCE_THRESHOLD_GRID:
-            f1 = _f1_for_thresholds(pred_return, actual_return, confidence, move_thr, conf_thr)
-            if f1 > best["f1_score"]:
-                n_issued = int(np.sum((np.abs(pred_return) >= move_thr) & (confidence >= conf_thr)))
-                best = {"move_threshold": float(move_thr), "confidence_threshold": float(conf_thr),
-                        "f1_score": float(f1), "n_signals_issued": n_issued}
+    best = {"f1": -1.0, "MIN_EXPECTED_MOVE_PCT": None, "MIN_CONFIDENCE": None,
+            "precision": 0.0, "recall": 0.0, "n_fired": 0}
 
-    return best
+    min_fired_floor = max(5, int(0.02 * len(df_regime)))
 
+    for move_thresh in move_grid:
+        for conf_thresh in conf_grid:
+            metrics = _f1_for_threshold(df_regime, float(move_thresh), float(conf_thresh))
+            if metrics["n_fired"] < min_fired_floor:
+                continue
+            if metrics["f1"] > best["f1"]:
+                best = {
+                    "f1": metrics["f1"],
+                    "MIN_EXPECTED_MOVE_PCT": float(move_thresh),
+                    "MIN_CONFIDENCE": float(conf_thresh),
+                    "precision": metrics["precision"],
+                    "recall": metrics["recall"],
+                    "n_fired": metrics["n_fired"],
+                }
 
-def fit_and_save_regime_thresholds(oof_df: pd.DataFrame, output_path=None) -> dict:
-    """
-    Main entry point called from train_model.py.
-
-    Args:
-        oof_df: DataFrame with columns ['date', 'regime', 'actual_return',
-                'pred_return', 'confidence'] — must be genuinely out-of-fold
-                (see train_model.generate_oof_predictions()), not in-sample.
-        output_path: where to write the resulting JSON. Defaults to
-                config.REGIME_THRESHOLDS_PATH.
-
-    Returns: the full thresholds dict (also written to disk).
-    """
-    output_path = output_path or REGIME_THRESHOLDS_PATH
-    required_cols = {"regime", "actual_return", "pred_return", "confidence"}
-    missing = required_cols - set(oof_df.columns)
-    if missing:
-        raise ValueError(f"fit_and_save_regime_thresholds: oof_df missing columns {missing}")
-
-    results = {}
-    for regime in VALID_REGIMES:
-        regime_df = oof_df[oof_df["regime"] == regime].dropna(
-            subset=["actual_return", "pred_return", "confidence"])
-        n = len(regime_df)
-
-        if n < MIN_SAMPLES_PER_REGIME:
-            print(f"THRESHOLD_CALIBRATOR[{regime}]: only {n} OOF samples "
-                  f"(< {MIN_SAMPLES_PER_REGIME}) — falling back to global defaults.")
-            results[regime] = {
-                "move_threshold": MIN_EXPECTED_MOVE_PCT,
-                "confidence_threshold": MIN_CONFIDENCE,
-                "f1_score": None,
-                "n_signals_issued": None,
-                "n_oof_samples": n,
-                "fallback_to_global_default": True,
-            }
-            continue
-
-        best = _grid_search_regime(regime_df)
-        best["n_oof_samples"] = n
-        best["fallback_to_global_default"] = False
-        results[regime] = best
-        print(f"THRESHOLD_CALIBRATOR[{regime}]: n={n}, "
-              f"move_thr={best['move_threshold']:.3f}, conf_thr={best['confidence_threshold']:.2f}, "
-              f"F1={best['f1_score']:.4f}, signals_issued={best['n_signals_issued']}")
-
-    payload = {
-        "generated_at": pd.Timestamp.utcnow().isoformat(),
-        "min_samples_per_regime": MIN_SAMPLES_PER_REGIME,
-        "global_default_move_threshold": MIN_EXPECTED_MOVE_PCT,
-        "global_default_confidence_threshold": MIN_CONFIDENCE,
-        "thresholds": results,
-    }
-
-    with open(output_path, "w") as f:
-        json.dump(payload, f, indent=2, default=str)
-
-    return payload
-
-
-def load_regime_thresholds(path=None) -> dict:
-    """Loads the calibrated thresholds JSON. Returns an all-default structure
-    (fail-safe) if the file is missing or corrupted — predict.py should
-    never crash because calibration hasn't run yet (e.g. a brand-new repo
-    before the first train_model.py run)."""
-    path = path or REGIME_THRESHOLDS_PATH
-    try:
-        with open(path) as f:
-            payload = json.load(f)
-        return payload["thresholds"]
-    except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
-        print(f"THRESHOLD_CALIBRATOR: could not load {path} ({e}) — using global defaults for all regimes.")
+    if best["MIN_EXPECTED_MOVE_PCT"] is None:
         return {
-            regime: {"move_threshold": MIN_EXPECTED_MOVE_PCT, "confidence_threshold": MIN_CONFIDENCE,
-                      "fallback_to_global_default": True}
-            for regime in VALID_REGIMES
+            **REGIME_CALIBRATION_FALLBACK,
+            "source": "fallback_no_viable_threshold",
+            "f1": None, "precision": None, "recall": None, "n_fired": 0,
+            "n_oof_samples": int(len(df_regime)),
         }
 
+    return {
+        "MIN_EXPECTED_MOVE_PCT": best["MIN_EXPECTED_MOVE_PCT"],
+        "MIN_CONFIDENCE": best["MIN_CONFIDENCE"],
+        "source": "calibrated",
+        "f1": best["f1"],
+        "precision": best["precision"],
+        "recall": best["recall"],
+        "n_fired": best["n_fired"],
+        "n_oof_samples": int(len(df_regime)),
+    }
 
-def get_calibrated_signal(regime: str, pred_return: float, confidence: float,
-                           thresholds: dict = None) -> str:
+
+def fit_and_save_regime_thresholds(oof_df: pd.DataFrame) -> dict:
     """
-    Applies the regime-specific calibrated thresholds to a single live
-    prediction, returning one of 'LONG', 'SHORT', '觀望' (HOLD).
+    Entry point called from train_model.py Step 5.5.
 
-    This is the function predict.py / signal_generator.py should call to
-    populate result['calibrated_signal'], replacing any single global-
-    threshold check.
+    Args:
+        oof_df: DataFrame with columns
+            ["regime", "expected_move_pct", "confidence", "actual_hit",
+             "pred_return", "actual_return"]
+            as produced by train_model.generate_oof_predictions().
+
+    Returns:
+        dict keyed by regime name, each value the calibration summary
+        (also written to REGIME_THRESHOLDS_PATH as JSON).
     """
-    thresholds = thresholds if thresholds is not None else load_regime_thresholds()
-    regime_thr = thresholds.get(regime, {
-        "move_threshold": MIN_EXPECTED_MOVE_PCT, "confidence_threshold": MIN_CONFIDENCE,
-    })
+    required_cols = {"regime", "expected_move_pct", "confidence", "actual_hit"}
+    missing = required_cols - set(oof_df.columns)
+    if missing:
+        raise ValueError(f"oof_df missing required columns: {missing}")
 
-    move_thr = regime_thr.get("move_threshold", MIN_EXPECTED_MOVE_PCT)
-    conf_thr = regime_thr.get("confidence_threshold", MIN_CONFIDENCE)
+    summary = {}
+    for regime in KNOWN_REGIMES:
+        df_regime = oof_df[oof_df["regime"] == regime]
+        if len(df_regime) < REGIME_CALIBRATION_MIN_SAMPLES_PER_REGIME:
+            summary[regime] = {
+                **REGIME_CALIBRATION_FALLBACK,
+                "source": "fallback_insufficient_samples",
+                "f1": None, "precision": None, "recall": None, "n_fired": 0,
+                "n_oof_samples": int(len(df_regime)),
+            }
+            continue
+        summary[regime] = _calibrate_single_regime(df_regime)
 
-    if abs(pred_return) < move_thr or confidence < conf_thr:
-        return "觀望"
-    return "LONG" if pred_return > 0 else "SHORT"
+    with open(REGIME_THRESHOLDS_PATH, "w") as f:
+        json.dump(summary, f, indent=2, default=str)
+
+    return summary
 
 
-def get_regime_threshold_summary(thresholds: dict = None) -> pd.DataFrame:
-    """Convenience helper for performance_report.py / dashboard_report.py to
-    display calibrated thresholds per regime as a readable table."""
-    thresholds = thresholds if thresholds is not None else load_regime_thresholds()
-    rows = []
-    for regime in VALID_REGIMES:
-        t = thresholds.get(regime, {})
-        rows.append({
-            "regime": regime,
-            "move_threshold_pct": round(t.get("move_threshold", MIN_EXPECTED_MOVE_PCT) * 100, 2),
-            "confidence_threshold": t.get("confidence_threshold", MIN_CONFIDENCE),
-            "f1_score": t.get("f1_score"),
-            "n_oof_samples": t.get("n_oof_samples"),
-            "fallback_to_global_default": t.get("fallback_to_global_default", True),
-        })
-    return pd.DataFrame(rows)
+def get_regime_threshold(regime: str) -> dict:
+    """
+    Entry point called from predict.py for every daily prediction.
+
+    Returns dict with keys MIN_EXPECTED_MOVE_PCT, MIN_CONFIDENCE, source.
+    Always returns a usable dict — never raises, never returns None — so
+    predict.py's fail-safe wrapper is a pure defensive formality.
+    """
+    fallback = {**REGIME_CALIBRATION_FALLBACK, "source": "static_fallback"}
+
+    if not REGIME_THRESHOLDS_PATH.exists():
+        return fallback
+
+    try:
+        with open(REGIME_THRESHOLDS_PATH) as f:
+            all_thresholds = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return fallback
+
+    regime_entry = all_thresholds.get(regime)
+    if not regime_entry or regime_entry.get("MIN_EXPECTED_MOVE_PCT") is None:
+        return fallback
+
+    return {
+        "MIN_EXPECTED_MOVE_PCT": regime_entry["MIN_EXPECTED_MOVE_PCT"],
+        "MIN_CONFIDENCE": regime_entry["MIN_CONFIDENCE"],
+        "source": regime_entry.get("source", "calibrated"),
+    }
