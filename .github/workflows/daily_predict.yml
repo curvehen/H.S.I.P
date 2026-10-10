@@ -18,9 +18,9 @@ on:
 jobs:
   # ===========================================================================
   # PRELIMINARY run — 7pm HKT scouting signal. No logging, no retrain checks,
-  # no backtest. Only generates + emails a clearly-labeled "初步方向,非交易
-  # 信號" preview. Triggered by the 11:00 UTC cron, or manual dispatch with
-  # run_mode=preliminary.
+  # no backtest, no dashboard. Only generates + emails a clearly-labeled
+  # "初步方向,非交易信號" preview. Triggered by the 11:00 UTC cron, or
+  # manual dispatch with run_mode=preliminary.
   # ===========================================================================
   predict_preliminary:
     if: >
@@ -56,7 +56,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run preliminary prediction (no logging)
+      - name: Run preliminary prediction (writes isolated preview snapshot only)
         working-directory: src
         env:
           RUN_MODE: preliminary
@@ -72,9 +72,11 @@ jobs:
         working-directory: src
         env:
           RUN_MODE: preliminary
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: python email_report.py
 
   # ===========================================================================
@@ -117,7 +119,7 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Run official prediction (logs + feature snapshot)
+      - name: Run official prediction (logs CSV + writes feature snapshot)
         working-directory: src
         env:
           RUN_MODE: official
@@ -187,7 +189,9 @@ jobs:
         working-directory: src
         env:
           RUN_MODE: official
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: python email_report.py
