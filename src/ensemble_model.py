@@ -92,3 +92,20 @@ class HSIEnsembleModel:
             "ridge": self.models["ridge"].predict(X[self.lag_cols]) if self.lag_cols else np.zeros(len(X)),
         }
         return sum(self.weights[k] * preds[k] for k in preds)
+
+
+    def predict_submodels_loaded(self, X: pd.DataFrame) -> dict:
+        """Returns each sub-model's individual raw prediction (unweighted),
+        keyed by the SAME short names used internally by predict()/
+        predict_loaded() ("lgb", "rf", "ridge") — needed by predict.py to
+        feed dynamic_ensemble_weighter.py's per-model Brier-score tracking.
+        Use this variant (not a plain predict_submodels) when the ensemble
+        was restored via .load() (self.models["lgb"] is a lgb.Booster, not
+        a sklearn LGBMRegressor — Booster.predict() has a different call
+        signature internally but the same external interface, so this
+        works for both fit() and load() states)."""
+        return {
+            "lgb": float(self.models["lgb"].predict(X)[0]),
+            "rf": float(self.models["rf"].predict(X)[0]),
+            "ridge": float(self.models["ridge"].predict(X[self.lag_cols])[0]) if self.lag_cols else 0.0,
+        }
