@@ -1,23 +1,32 @@
 {
-  "thresholds": {
-    "BULL": {
-      "long": 0.66,
-      "short": 0.28,
-      "f1": 0.9907,
-      "n": 320
-    },
-    "NEUTRAL": {
-      "long": 0.72,
-      "short": 0.28,
-      "f1": 1.0,
-      "n": 122
-    },
-    "BEAR": {
-      "long": 0.74,
-      "short": 0.28,
-      "f1": 1.0,
-      "n": 169
-    }
+  "BULL": {
+    "MIN_EXPECTED_MOVE_PCT": 0.00022567254831997076,
+    "MIN_CONFIDENCE": 0.5732772365382212,
+    "source": "calibrated",
+    "f1": 0.7206551410373067,
+    "precision": 0.592814371257485,
+    "recall": 0.9187935034802784,
+    "n_fired": 668,
+    "n_oof_samples": 740
   },
-  "fitted": true
+  "BEAR": {
+    "MIN_EXPECTED_MOVE_PCT": 0.0002340651322682498,
+    "MIN_CONFIDENCE": 0.5712758578682838,
+    "source": "calibrated",
+    "f1": 0.7270135424091233,
+    "precision": 0.6042654028436019,
+    "recall": 0.9123434704830053,
+    "n_fired": 844,
+    "n_oof_samples": 936
+  },
+  "NEUTRAL": {
+    "MIN_EXPECTED_MOVE_PCT": 0.0002531720432594894,
+    "MIN_CONFIDENCE": 0.5876657052392678,
+    "source": "calibrated",
+    "f1": 0.7145557655954632,
+    "precision": 0.5869565217391305,
+    "recall": 0.9130434782608695,
+    "n_fired": 322,
+    "n_oof_samples": 358
+  }
 }

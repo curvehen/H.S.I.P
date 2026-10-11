@@ -1,0 +1,14 @@
+{
+  "lightgbm": {
+    "brier_history": [],
+    "last_weight": null
+  },
+  "random_forest": {
+    "brier_history": [],
+    "last_weight": null
+  },
+  "ridge": {
+    "brier_history": [],
+    "last_weight": null
+  }
+}
