@@ -23,6 +23,19 @@ Full pipeline:
 13. Save everything + metrics.json + mark_trained_today()
 
 FIX LOG (this revision):
+  - BUGFIX: train_stock_models() called stock_high_model_path(),
+    stock_low_model_path(), and stock_prob_model_path() without ever
+    importing them from config.py. Every per-stock training iteration
+    raised NameError at the two .booster_.save_model() calls and at the
+    probability-model training call, caught by the enclosing try/except
+    and reported as "Training failed for <ticker>: name '...' is not
+    defined" for every single ticker, constituent and watchlist alike.
+    Fixed by adding the three names to the top-level `from config import`
+    statement.
+  - CLEANUP: removed a dead, confusing line in train_stock_models()
+    (`watchlist_tickers = get_universe.__globals__.get(...)`) that computed
+    a value never used — the actual watchlist is obtained via the explicit
+    `from stock_universe import get_watchlist` call directly below it.
   - CORRECTION: an earlier review pass claimed Step 4's `def model_fn(...)`
     had a stray indentation error. On re-reading the full file verbatim,
     this was incorrect — the original indentation was always valid Python.
@@ -55,7 +68,8 @@ from sklearn.ensemble import RandomForestClassifier
 from config import (MODEL_CLOSE_Q10_PATH, MODEL_CLOSE_Q50_PATH, MODEL_CLOSE_Q90_PATH,
                      MODEL_HIGH_PATH, MODEL_LOW_PATH, FEATURE_LIST_PATH, METRICS_PATH,
                      STOCK_MODEL_DIR, HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER,
-                     LGB_PARAMS, REGIME_CALIBRATION_MIN_SAMPLES_PER_REGIME)
+                     LGB_PARAMS, REGIME_CALIBRATION_MIN_SAMPLES_PER_REGIME,
+                     stock_prob_model_path, stock_high_model_path, stock_low_model_path)
 from data_sources import fetch_with_fallback
 from features import build_features, get_numeric_feature_columns
 from labeling import build_nextday_labels, LABEL_COLUMNS
@@ -103,9 +117,9 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Dataset construction (UPDATED: now also returns raw OHLC, needed by
-# calibrate_gap_model() in Step 5.7 — previously only labeled_df was
-# returned, discarding the Open/Close columns required for gap calibration)
+# Dataset construction (returns (labeled_df, raw) — raw retains the
+# original OHLC columns (Open/Close) needed downstream for overnight gap
+# calibration).
 # ---------------------------------------------------------------------------
 
 def build_labeled_hsi_dataset():
@@ -125,7 +139,7 @@ def build_labeled_hsi_dataset():
 
 
 # ---------------------------------------------------------------------------
-# NEW (ENH#1 support): true walk-forward OOF prediction generation
+# ENH#1 support: true walk-forward OOF prediction generation
 # ---------------------------------------------------------------------------
 
 def generate_oof_predictions(labeled_df: pd.DataFrame, feature_cols: list, best_params: dict,
@@ -285,8 +299,8 @@ def train_hsi_models():
     # =========================================================================
 
     # =========================================================================
-    # NEW — overnight gap model calibration (wires gap_estimator.py +
-    # macro_features.py into the training pipeline for the first time).
+    # Overnight gap model calibration (wires gap_estimator.py +
+    # macro_features.py into the training pipeline).
     # Produces the gap calibration artifact consumed by predict.py's
     # predict_hsi() via gap_estimator.load_gap_model() to compute
     # estimated_entry_price. Without this step, that field permanently
@@ -375,8 +389,7 @@ def train_stock_models():
     """
     print("=== Training per-stock bottom-up models (constituents + watchlist) ===")
     universe = get_universe()  # {ticker: weight} — HSI constituents only
-    watchlist_tickers = get_universe.__globals__.get("get_watchlist", None)
-    from stock_universe import get_watchlist  # explicit import, avoids relying on globals() lookup above
+    from stock_universe import get_watchlist
     watchlist = get_watchlist()  # [ticker, ...] — independent, no weight
 
     constituent_tickers = list(universe.keys())
