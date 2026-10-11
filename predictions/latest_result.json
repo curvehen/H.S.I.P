@@ -44,7 +44,7 @@
   "sub_model_preds": {
     "lgb": 0.004413247255530177,
     "rf": 0.0026431391935086137,
-    "ridge": 0.0002204718883033253
+    "ridge": 0.00022047188830332572
   },
   "bottom_up_return": 0.003465605636750899,
   "stock_predictions": [
@@ -336,7 +336,7 @@
         "label": "\u5f31",
         "margin_pct": 2.9
       },
-      "hit_rate": "N/A"
+      "hit_rate": "74.1%"
     },
     {
       "ticker": "0968.HK",
@@ -352,7 +352,7 @@
         "label": "\u4e2d",
         "margin_pct": 13.3
       },
-      "hit_rate": "N/A"
+      "hit_rate": "73.0%"
     }
   ],
   "llm_commentary": null,
