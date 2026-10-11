@@ -7,41 +7,14 @@ Now includes transaction cost + slippage simulation and Kelly-based
 position sizing, to report NET (after-cost) strategy performance
 alongside raw directional accuracy.
 
+Also backtests the standalone watchlist (1211.HK, 0968.HK) separately
+from the HSI constituent universe, so hit_rate_tracker.py has data to
+compute their directional hit rates (previously always "N/A" because
+these tickers were never included in backtest_stocks.csv).
+
 Usage:
     python run_daily_backtest.py insample 2026-01-01
     python run_daily_backtest.py walkforward 2026-01-01
-
-FIX LOG (this revision):
-  - PositionSizer(kelly_fraction=0.25, max_position=1.0, min_edge=0.02)
-    used kwarg names that never existed on PositionSizer.__init__()
-    (real names: kelly_fraction, max_position_pct, min_position_pct_floor,
-    kelly_min_edge) — this raised TypeError on every run.
-  - sizer.compute_size(prob=..., signal=..., regime=..., roll_acc=...)
-    called a method that does not exist at all on PositionSizer. Replaced
-    with the module-level compute_position_size(p_up, calibrated_signal,
-    signal_confidence, risk_reward_ratio, regime, worth_trading) -> dict
-    with key "position_size_pct", matching position_sizer.py's actual
-    contract (same one predict.py now uses).
-  - p_up is now derived directionally from the confidence column: a
-    confidence value is "probability the direction is correct", not raw
-    P(up) — for SHORT signals this must be inverted (1 - confidence),
-    otherwise Kelly sizing would have been computed backwards for every
-    short signal.
-  - risk_reward_ratio is now computed directionally from pred_high/
-    pred_low against last_close when available (HSI always has these;
-    stocks have them only when their high/low models exist on disk);
-    falls back to a flagged neutral 1.0 for stock rows missing high/low
-    models (see daily_backtest_insample_stock()'s FIX LOG below).
-  - daily_backtest_insample_stock() now also loads
-    stock_high_model_path(ticker) / stock_low_model_path(ticker) (these
-    model artifacts already exist on disk, produced by train_model.py's
-    train_stock_models() — they were simply never wired into this backtest
-    function before), adding real pred_high/pred_low columns so
-    apply_cost_simulation() can compute a genuine risk_reward_ratio for
-    stocks too, instead of always using the 1.0 placeholder.
-  - Added missing imports: stock_high_model_path, stock_low_model_path
-    (from config) — daily_backtest_insample_stock() referenced these
-    without importing them, which would have raised NameError.
 """
 
 import sys
@@ -55,14 +28,13 @@ import lightgbm as lgb
 from config import (HSI_TICKER, US_FUTURES_TICKER, VIX_TICKER, LGB_PARAMS,
                      PRED_DIR, STOCK_MODEL_DIR, FEATURE_LIST_PATH,
                      MODEL_CLOSE_Q50_PATH, MODEL_HIGH_PATH, MODEL_LOW_PATH,
-                     DIRECTIONAL_ACC_MIN, TRANSACTION_COST, SLIPPAGE_POINTS,
-                     stock_high_model_path, stock_low_model_path)
+                     DIRECTIONAL_ACC_MIN, TRANSACTION_COST, SLIPPAGE_POINTS)
 from data_sources import fetch_with_fallback, to_stooq_hk_code
 from features import build_features, get_numeric_feature_columns
 from labeling import build_nextday_labels, LABEL_COLUMNS
 from confidence import load_meta_model, get_signal_confidence
-from stock_universe import get_universe
-from position_sizer import compute_position_size
+from stock_universe import get_universe, get_watchlist   # <-- CHANGED: added get_watchlist
+from position_sizer import PositionSizer
 
 
 # ---------------------------------------------------------------------------
@@ -76,48 +48,14 @@ def apply_cost_simulation(df: pd.DataFrame, confidence_col: str = "confidence",
     df = df.copy()
     df["signal"] = np.sign(df["pred_close_return"])
 
-    has_high_low = "pred_high" in df.columns and "pred_low" in df.columns
-
     if use_position_sizing:
+        sizer = PositionSizer(kelly_fraction=0.25, max_position=1.0, min_edge=0.02)
         sizes = []
         for _, row in df.iterrows():
-            confidence = row[confidence_col] if confidence_col in df.columns and pd.notna(row[confidence_col]) else 0.55
+            prob = row[confidence_col] if confidence_col in df.columns and pd.notna(row[confidence_col]) else 0.55
             regime = row[regime_col] if regime_col and regime_col in df.columns else "NEUTRAL"
-            signal = int(row["signal"])
-
-            if signal > 0:
-                calibrated_signal = "LONG"
-                p_up_proxy = confidence
-            elif signal < 0:
-                calibrated_signal = "SHORT"
-                p_up_proxy = 1 - confidence
-            else:
-                calibrated_signal = "觀望"
-                p_up_proxy = 0.5
-
-            if has_high_low:
-                entry = row["last_close"]
-                if signal > 0:
-                    reward = row["pred_high"] - entry
-                    risk = entry - row["pred_low"]
-                else:
-                    reward = entry - row["pred_low"]
-                    risk = row["pred_high"] - entry
-                risk_reward_ratio = (reward / risk) if risk and risk > 0 else 1.0
-            else:
-                # Per-stock backtest rows without high/low models loaded —
-                # flagged neutral fallback, not a genuinely computed ratio.
-                risk_reward_ratio = 1.0
-
-            result = compute_position_size(
-                p_up=p_up_proxy,
-                calibrated_signal=calibrated_signal,
-                signal_confidence=confidence,
-                risk_reward_ratio=risk_reward_ratio,
-                regime=regime,
-                worth_trading=True,
-            )
-            sizes.append(result["position_size_pct"])
+            size = sizer.compute_size(prob=prob, signal=int(row["signal"]), regime=regime, roll_acc=0.5)
+            sizes.append(size if size > 0 else 0.0)
         df["position_size"] = sizes
     else:
         df["position_size"] = df["signal"].abs()
@@ -227,93 +165,54 @@ def daily_backtest_insample_hsi(start_date: str) -> pd.DataFrame:
 
 # ---------------------------------------------------------------------------
 # Per-stock in-sample daily backtest
+# (shared by both HSI constituents and standalone watchlist tickers)
 # ---------------------------------------------------------------------------
 
 def daily_backtest_insample_stock(ticker: str, start_date: str) -> pd.DataFrame:
-    """
-    In-sample backtest for a single stock (constituent or watchlist ticker).
-    Loads close AND high/low models (when available) so apply_cost_simulation()
-    can compute a genuine direction-aware risk_reward_ratio, instead of
-    always falling back to a flagged neutral 1.0.
-
-    FIX LOG (this revision):
-      - Added pred_close, actual_close, and directional_hit columns —
-        previously only return-based columns were produced
-        (pred_close_return, actual_close_return), while
-        summarize_performance() unconditionally reads df["pred_close"] and
-        df["actual_close"] (for RMSE/MAE) and df["directional_hit"] (for
-        accuracy). This caused EVERY stock to fail with KeyError('pred_close')
-        inside summarize_performance(), silently caught by run()'s per-ticker
-        try/except — so daily_backtest_stocks.csv / backtest_stocks.csv were
-        never actually written with real data, which in turn made
-        hit_rate_tracker.py fail with KeyError('directional_hit') when it
-        tried to read that file afterwards. Both errors shared this single
-        root cause.
-    """
-    raw = fetch_with_fallback(ticker, stooq_ticker=to_stooq_hk_code(ticker))
-    if raw is None or len(raw) < 100:
-        return pd.DataFrame()
-
-    feat_df = build_features(raw, us_futures=None, vix=None,
-                              ccass_change=0.0, market_sentiment=0.0,
-                              stock_sentiment=0.0, ticker=ticker, include_macro=False)
-    labeled_df = build_nextday_labels(feat_df)
-    labeled_df = labeled_df[labeled_df.index >= pd.to_datetime(start_date)]
-    if len(labeled_df) == 0:
-        return pd.DataFrame()
-
+    model_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"
     feat_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_features.json"
-    model_close_path = STOCK_MODEL_DIR / f"{ticker.replace('.', '_')}_close_q50.txt"
-    if not feat_path.exists() or not model_close_path.exists():
+
+    if not model_path.exists() or not feat_path.exists():
         return pd.DataFrame()
+
+    stooq_code = to_stooq_hk_code(ticker)
+    raw = fetch_with_fallback(ticker, stooq_ticker=stooq_code)
+    feat_df = build_features(raw, ccass_change=0.0, stock_sentiment=0.0,
+                              ticker=ticker, include_macro=False)
+    labeled_df = build_nextday_labels(feat_df)
 
     with open(feat_path) as f:
         feature_cols = json.load(f)
+    for col in feature_cols:
+        if col not in labeled_df.columns:
+            labeled_df[col] = 0
+    X_all = labeled_df[feature_cols].astype(float)
 
-    X = labeled_df.reindex(columns=feature_cols, fill_value=0).astype(float)
+    mask = labeled_df.index >= pd.Timestamp(start_date)
+    subset = labeled_df[mask]
+    X_subset = X_all[mask]
 
-    model_close = lgb.Booster(model_file=str(model_close_path))
-    pred_close_return = model_close.predict(X)
+    if subset.empty:
+        return pd.DataFrame()
 
-    high_path = stock_high_model_path(ticker)
-    low_path = stock_low_model_path(ticker)
-    has_high_low = high_path.exists() and low_path.exists()
-
-    if has_high_low:
-        model_high = lgb.Booster(model_file=str(high_path))
-        model_low = lgb.Booster(model_file=str(low_path))
-        pred_high_return = model_high.predict(X)
-        pred_low_return = model_low.predict(X)
-    else:
-        print(f"run_daily_backtest: high/low models not found for {ticker} — "
-              f"risk_reward_ratio for this ticker will fall back to the neutral 1.0 default.")
-        pred_high_return = None
-        pred_low_return = None
-
-    last_close = labeled_df["Close"].values if "Close" in labeled_df.columns else raw.loc[labeled_df.index, "Close"].values
+    model = lgb.Booster(model_file=str(model_path))
+    pred_close_return = model.predict(X_subset)
 
     df = pd.DataFrame({
-        "date": labeled_df.index,
+        "date": subset.index,
         "ticker": ticker,
-        "last_close": last_close,
+        "last_close": subset["Close"].values,
         "pred_close_return": pred_close_return,
-        "actual_close_return": labeled_df["next_close_return"].values,
-        "confidence": 0.55,  # per-stock backtest has no meta-confidence model wired in; neutral default
+        "actual_close_return": subset["next_close_return"].values,
     })
-
-    # NEW: absolute price levels + directional hit — summarize_performance()
-    # and hit_rate_tracker.py both require these exact column names.
     df["pred_close"] = df["last_close"] * (1 + df["pred_close_return"])
     df["actual_close"] = df["last_close"] * (1 + df["actual_close_return"])
     df["directional_hit"] = (np.sign(df["pred_close_return"]) == np.sign(df["actual_close_return"])).astype(int)
 
-    if has_high_low:
-        df["pred_high"] = last_close * (1 + pred_high_return)
-        df["pred_low"] = last_close * (1 + pred_low_return)
-
+    # No confidence column at per-stock level — apply_cost_simulation falls back
+    # to a neutral 0.55 default internally.
     df = apply_cost_simulation(df, confidence_col="confidence", use_position_sizing=True)
     return df
-
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +326,29 @@ def run(mode: str = "insample", start_date: str = "2026-01-01"):
         except Exception as e:
             print(f"  {ticker} 回測失敗: {e}")
             continue
+
+    # --- CHANGED: standalone watchlist backtest (fixes hit_rate always "N/A") ---
+    # Watchlist tickers (e.g. 1211.HK, 0968.HK) are intentionally excluded from
+    # get_universe() so they never pollute the HSI weighted-sum aggregation.
+    # But they still need directional_hit rows in backtest_stocks.csv for
+    # hit_rate_tracker.compute_hit_rates() to find them via groupby("ticker"),
+    # which does not care about index-level weights. Mixing them into the same
+    # CSV is therefore safe and does not affect HSI aggregation anywhere else.
+    print("\n>>> 獨立觀察名單回測中...")
+    for ticker in get_watchlist():
+        try:
+            df = daily_backtest_insample_stock(ticker, start_date)
+            if df.empty:
+                continue
+            all_stock_rows.append(df)
+            summary = summarize_performance(df, ticker)
+            summary["is_watchlist"] = True
+            stock_summaries.append(summary)
+            print(f"  [觀察名單] {ticker}: 方向準確度 = {summary['directional_accuracy']}")
+        except Exception as e:
+            print(f"  [觀察名單] {ticker} 回測失敗: {e}")
+            continue
+    # --- END CHANGED ---
 
     if all_stock_rows:
         stock_df = pd.concat(all_stock_rows, ignore_index=True)
