@@ -34,49 +34,69 @@ from labeling import build_nextday_labels, LABEL_COLUMNS
 from confidence import load_meta_model, get_signal_confidence
 from stock_universe import get_universe
 from position_sizer import PositionSizer
+import math
+from config import DYNAMIC_WEIGHT_SIGMOID_K
+from position_sizer import compute_position_size
 
 
 # ---------------------------------------------------------------------------
 # Cost + position-sizing helpers
 # ---------------------------------------------------------------------------
 
+def _pseudo_prob_up(pred_return: float, k: float = DYNAMIC_WEIGHT_SIGMOID_K) -> float:
+    """Reuses dynamic_ensemble_weighter.py's established pattern for squashing
+    a regression output into a directional pseudo-probability, since the
+    backtest dataframes don't carry probability_model.py's true p_up."""
+    try:
+        return 1.0 / (1.0 + math.exp(-k * pred_return))
+    except OverflowError:
+        return 0.0 if pred_return < 0 else 1.0
+
+
 def apply_cost_simulation(df: pd.DataFrame, confidence_col: str = "confidence",
                            regime_col: str = None, use_position_sizing: bool = True) -> pd.DataFrame:
-    """
-    Adds gross/net strategy return columns to a backtest results DataFrame.
-    Requires columns: pred_close_return, actual_close_return, last_close.
-
-    - gross_ret: raw signal * actual return (no costs)
-    - position_size: Kelly-derived fraction of capital risked (0 if use_position_sizing=False, uses fixed 1.0)
-    - cost: transaction cost + slippage charged whenever the signal changes direction
-    - net_ret: position_size * actual_return - cost
-    """
+    """Adds gross/net strategy return columns using Kelly position sizing
+    and transaction cost + slippage simulation."""
     df = df.copy()
     df["signal"] = np.sign(df["pred_close_return"])
 
     if use_position_sizing:
-        sizer = PositionSizer(kelly_fraction=0.25, max_position=1.0, min_edge=0.02)
+        has_hilo = "pred_high" in df.columns and "pred_low" in df.columns
         sizes = []
         for _, row in df.iterrows():
-            # Approximate win-probability from confidence score when available,
-            # otherwise fall back to a neutral 0.5 + small edge based on signal direction.
-            prob = row[confidence_col] if confidence_col in df.columns and pd.notna(row[confidence_col]) else 0.55
+            direction = "LONG" if row["signal"] > 0 else ("SHORT" if row["signal"] < 0 else "觀望")
+            p_up = _pseudo_prob_up(row["pred_close_return"])
+            confidence = row[confidence_col] if confidence_col in df.columns and pd.notna(row[confidence_col]) else 0.55
             regime = row[regime_col] if regime_col and regime_col in df.columns else "NEUTRAL"
-            size = sizer.compute_size(prob=prob, signal=int(row["signal"]), regime=regime, roll_acc=0.5)
-            sizes.append(size if size > 0 else 0.0)
+
+            if has_hilo:
+                risk = abs(row["last_close"] - row["pred_low"])
+                reward = abs(row["pred_close"] - row["last_close"])
+                rr = round(reward / risk, 2) if risk > 0 else 1.0
+            else:
+                rr = 1.0  # 個股回測冇high/low模型，用中性 R:R 近似值
+
+            result = compute_position_size(
+                p_up=p_up,
+                calibrated_signal=direction,
+                signal_confidence=confidence,
+                risk_reward_ratio=rr,
+                regime=regime,
+                worth_trading=True,  # 回測要測試每日訊號的實際經濟效益，不套用生產環境的worth_trading濾網
+            )
+            sizes.append(result["position_size_pct"])
         df["position_size"] = sizes
     else:
-        df["position_size"] = df["signal"].abs()  # fixed full-size whenever there's a signal
+        df["position_size"] = df["signal"].abs()
 
     df["gross_ret"] = df["signal"] * df["actual_close_return"]
 
-    # Cost charged whenever position changes (entry/exit), proportional to trade size.
     df["sig_change"] = df["signal"].diff().abs().fillna(abs(df["signal"].iloc[0]) if len(df) else 0)
     slippage_pct = (SLIPPAGE_POINTS / df["last_close"]).fillna(0)
     df["cost"] = df["sig_change"] * (TRANSACTION_COST + slippage_pct) * df["position_size"].clip(lower=0.01)
 
     df["strategy_ret"] = df["position_size"] * df["signal"] * df["actual_close_return"] - df["cost"]
-    df["bh_ret"] = df["actual_close_return"]  # Buy & Hold benchmark
+    df["bh_ret"] = df["actual_close_return"]
 
     return df
 
