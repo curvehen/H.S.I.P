@@ -4,63 +4,31 @@ Reads the result JSON written by predict.py (LATEST_RESULT_PATH for official
 runs, a separate preliminary-only snapshot for preliminary runs — see
 __main__ and predict.py's log_prediction()).
 
-FIX LOG (this revision):
-  - Every field access below has been realigned to predict.py's ACTUAL
-    result dict keys (confirmed by reading predict.py's source directly).
-    The previous version referenced an entirely different/older schema
-    (target_trading_date, data_as_of_date, data_source, _run_mode, p_down,
-    signal_strength_label, signal_confidence, position_size_pct, pred_low/
-    pred_high/pred_close, pred_low_pct/pred_high_pct, pred_range_points/
-    pred_range_pct, bottom_up_coverage_weight, hit_rate, worth_trading_reason,
-    calibrated_signal, _stock_predictions, llm_model, run_timestamp,
-    _is_cached_snapshot) — NONE of these keys exist under those names in the
-    current predict.py's result dict, and several were accessed via
-    [...] indexing, which would raise KeyError and crash the report build.
-  - calibrated_signal and worth_trading_reason are NOT computed by
-    predict.py at all. Rather than re-deriving this logic independently
-    (risking drift from the signal text sent in the same day's report),
-    this module now imports and reuses signal_generator.py's
-    `_determine_calibrated_signal()` and `_build_worth_trading_reason()`
-    directly, so the email and the trading signal text always agree.
-  - HSI-level hit_rate is not attached by predict_hsi(); now fetched
-    directly via hit_rate_tracker.get_hit_rate(HSI_TICKER), same source
-    signal_generator.py uses.
-  - pred_low/pred_high/pred_close are now read from predict.py's actual
-    *_price keys; percentage figures (pred_low_pct, pred_high_pct,
-    pred_range_pct) and point range are derived here from last_close,
-    since predict.py does not store them pre-computed.
-  - bottom_up_coverage_weight is now computed as the sum of each stock's
-    `weight` field across result["stock_predictions"] (constituents that
-    successfully produced a prediction), since predict.py does not emit
-    this directly.
-  - Stock/watchlist sections now read predict.py's ACTUAL two separate
-    keys — result["stock_predictions"] (constituents, carries a "weight"
-    key) and result["watchlist_predictions"] (no "weight" key) — instead
-    of a single combined "_stock_predictions" list filtered by a
-    nonexistent "is_constituent" flag.
-  - Per-stock table rows now derive absolute price levels and percentage
-    return display from predict_single_stock()'s actual return-based
-    fields (pred_close_return, pred_high_return, pred_low_return) relative
-    to last_close, since predict.py does not emit absolute per-stock
-    pred_low/pred_high/pred_close or a "signal" label directly.
-  - run_mode key aligned to predict.py's actual "run_mode" (no underscore),
-    matching the fix already applied in signal_generator.py.
-  - NEW: added the mandatory preliminary-run warning banner
-    ("初步方向,非交易信號") per the dual run-time requirement — this was
-    completely absent previously. Rendered prominently at the top AND
-    bottom of the email body, and reflected in the subject line.
-  - llm_model display now falls back to config.DASHSCOPE_MODEL_NAME (the
-    actual model used for the call) since predict.py does not attach a
-    per-run "llm_model" field.
-  - run_timestamp is not produced by predict.py; replaced with a
-    "報告產生時間" (report-generation time) computed locally in HKT at
-    send time — explicitly labeled as generation time, not prediction
-    computation time, to avoid implying a precision predict.py doesn't
-    provide.
-  - _is_cached_snapshot is not yet implemented anywhere in the pipeline
-    (weekend/holiday snapshot reuse is still a pending design item per
-    earlier discussion) — the cached-snapshot note is kept but will simply
-    never render until that field is actually produced upstream.
+FIX LOG (accumulated):
+  - Every field access realigned to predict.py's ACTUAL result dict keys.
+  - calibrated_signal is read directly from result["calibrated_signal"]
+    (predict.py now computes and provides this), rather than re-derived
+    via signal_generator._determine_calibrated_signal() — removes a
+    NameError that occurred when that import was dropped but the call site
+    was not updated to match.
+  - worth_trading_reason still reuses signal_generator._build_worth_trading_reason()
+    to keep the email and the signal text in agreement.
+  - HSI-level hit_rate fetched via hit_rate_tracker.get_hit_rate(HSI_TICKER).
+  - pred_low/pred_high/pred_close read from predict.py's actual *_price keys.
+  - Stock/watchlist sections read predict.py's two separate keys
+    (stock_predictions / watchlist_predictions).
+  - run_mode key aligned to predict.py's actual "run_mode" (no underscore).
+  - Preliminary-run warning banner added, rendered top and bottom, and
+    reflected in the subject line.
+  - NEW (this revision): removed a duplicate SMTP_HOST/SMTP_PORT assignment
+    block — the file previously defined SMTP_PORT twice (once via a plain
+    int(os.environ.get(...)) call, then again via the safer _get_smtp_port()
+    helper). The second definition always overwrote the first at import
+    time, so behavior was correct, but the dead first block is removed here
+    to avoid confusion.
+  - NEW: p_up and confidence are now rendered as formatted percentages
+    (e.g. "62.3%") in both the HSI section and per-stock table rows,
+    instead of raw floats like "0.623481".
 """
 
 import json
@@ -70,20 +38,14 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-
 from config import LATEST_RESULT_PATH, PRED_DIR, HSI_TICKER, DASHSCOPE_MODEL_NAME
 from hit_rate_tracker import get_hit_rate
 from market_hours import HKT
 # Reused rather than re-derived, to keep the email and the signal text in
-# agreement on direction/verdict/reason (see FIX LOG).
+# agreement on the worth-trading reason (calibrated_signal itself now comes
+# directly from predict.py's result dict — see build_hsi_section()).
+from signal_generator import _build_worth_trading_reason
 
-from signal_generator import _build_worth_trading_reason  # calibrated_signal no longer re-derived here
-
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
-EMAIL_TO = os.environ.get("EMAIL_TO")
 
 def _get_smtp_port(default: int = 587) -> int:
     """os.environ.get(key, default) only falls back when the key is
@@ -112,6 +74,15 @@ def _fmt_pct(x, decimals=2):
     if x is None:
         return "N/A"
     return f"{x:+.{decimals}f}%"
+
+
+def _fmt_prob_pct(x, decimals=1):
+    """Formats a 0-1 probability (e.g. p_up, confidence) as a plain
+    percentage display (no +/- sign, since these are probabilities, not
+    returns)."""
+    if x is None:
+        return "N/A"
+    return f"{x * 100:.{decimals}f}%"
 
 
 def _fmt_price(x, decimals=1):
@@ -149,8 +120,7 @@ def build_preliminary_banner() -> str:
 
 
 def build_hsi_section(result: dict) -> str:
-    raw_direction = "LONG" if result.get("pred_close_return_blended", 0) > 0 else "SHORT"
-    calibrated = _determine_calibrated_signal(result, raw_direction)
+    calibrated = result.get("calibrated_signal", "觀望")
     calibrated_color = _calibrated_signal_color(calibrated)
     reason = _build_worth_trading_reason(result)
 
@@ -177,6 +147,9 @@ def build_hsi_section(result: dict) -> str:
     position_row = (f'<tr><td>建議倉位 (Fractional Kelly)</td><td>{position_pct:.2%}</td></tr>'
                      if position_pct is not None else "")
 
+    p_up_display = _fmt_prob_pct(result.get("p_up"))
+    confidence_display = _fmt_prob_pct(result.get("confidence"))
+
     html = f"""
     <h2 style="margin-bottom:4px;">恆生指數 (HSI) 次日預測 — {result.get('date', 'N/A')}</h2>
     <p style="color:#666;font-size:13px;margin-top:0;">
@@ -187,9 +160,9 @@ def build_hsi_section(result: dict) -> str:
       <tr style="background:#f5f5f5;"><td><b>市場 Regime</b></td><td><b>{result.get('regime', 'N/A')}</b></td></tr>
       <tr><td>校準後訊號 (Regime-Calibrated)</td>
           <td style="color:{calibrated_color};font-weight:bold;">{calibrated}</td></tr>
-      <tr style="background:#f5f5f5;"><td>P(上升)</td><td>{result.get('p_up')}</td></tr>
+      <tr style="background:#f5f5f5;"><td>P(上升)</td><td>{p_up_display}</td></tr>
       <tr><td>訊號強度</td><td>{result.get('signal_strength', 'N/A')}</td></tr>
-      <tr style="background:#f5f5f5;"><td>模型信心分數</td><td>{result.get('confidence')}</td></tr>
+      <tr style="background:#f5f5f5;"><td>模型信心分數</td><td>{confidence_display}</td></tr>
       {position_row}
       <tr><td>現價 (Last Close)</td><td>{_fmt_price(last_close)}</td></tr>
       <tr style="background:#f5f5f5;"><td>預測低位</td>
@@ -240,13 +213,15 @@ def _stock_row_html(stock: dict) -> str:
         else:
             direction, direction_color = "中性", "#8a8a8a"
 
+    p_up_display = _fmt_prob_pct(p_up)
+
     return f"""
     <tr>
       <td>{stock.get('ticker', 'N/A')}</td>
       <td>{stock.get('name', 'N/A')}</td>
       <td>{stock.get('sector', 'N/A')}</td>
       <td style="color:{direction_color};">{direction}</td>
-      <td>{stock.get('p_up')}</td>
+      <td>{p_up_display}</td>
       <td>{stock.get('signal_strength', 'N/A')}</td>
       <td>{_fmt_price(last_close)}</td>
       <td>{_fmt_price(pred_close_price)} ({_fmt_pct(pred_close_return * 100 if pred_close_return is not None else None)})</td>
@@ -404,7 +379,6 @@ def _load_result() -> dict:
         )
     with open(result_path) as f:
         return json.load(f)
-
 
 
 if __name__ == "__main__":
