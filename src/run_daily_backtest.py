@@ -33,11 +33,12 @@ from data_sources import fetch_with_fallback, to_stooq_hk_code
 from features import build_features, get_numeric_feature_columns
 from labeling import build_nextday_labels, LABEL_COLUMNS
 from confidence import load_meta_model, get_signal_confidence
-from stock_universe import get_universe, get_watchlist   # <-- CHANGED: added get_watchlist
+from stock_universe import get_universe, get_watchlist
 from position_sizer import PositionSizer
 import math
 from config import DYNAMIC_WEIGHT_SIGMOID_K
 from position_sizer import compute_position_size
+from hit_rate_tracker import compute_hit_rates   # <-- NEW: wire up hit-rate refresh
 
 # ---------------------------------------------------------------------------
 # Cost + position-sizing helpers (shared logic with backtest.py)
@@ -74,7 +75,7 @@ def apply_cost_simulation(df: pd.DataFrame, confidence_col: str = "confidence",
                 reward = abs(row["pred_close"] - row["last_close"])
                 rr = round(reward / risk, 2) if risk > 0 else 1.0
             else:
-                rr = 1.0  # 個股回測冇high/low模型，用中性 R:R 近似值
+                rr = 1.0  # 個股回測缺high/low模型，用中性 R:R 近似值
 
             result = compute_position_size(
                 p_up=p_up,
@@ -356,7 +357,7 @@ def run(mode: str = "insample", start_date: str = "2026-01-01"):
             print(f"  {ticker} 回測失敗: {e}")
             continue
 
-    # --- CHANGED: standalone watchlist backtest (fixes hit_rate always "N/A") ---
+    # Standalone watchlist backtest (fixes hit_rate always "N/A").
     # Watchlist tickers (e.g. 1211.HK, 0968.HK) are intentionally excluded from
     # get_universe() so they never pollute the HSI weighted-sum aggregation.
     # But they still need directional_hit rows in backtest_stocks.csv for
@@ -377,12 +378,21 @@ def run(mode: str = "insample", start_date: str = "2026-01-01"):
         except Exception as e:
             print(f"  [觀察名單] {ticker} 回測失敗: {e}")
             continue
-    # --- END CHANGED ---
 
     if all_stock_rows:
         stock_df = pd.concat(all_stock_rows, ignore_index=True)
         stock_df.to_csv(PRED_DIR / "daily_backtest_stocks.csv", index=False)
         stock_df.to_csv(PRED_DIR / "backtest_stocks.csv", index=False)
+
+    # --- NEW: refresh hit_rates.json immediately after backtest_stocks.csv is
+    # written, so email_report.py's get_hit_rate() calls always see fresh data
+    # without requiring a separate manual `python hit_rate_tracker.py` run. ---
+    try:
+        updated_rates = compute_hit_rates()
+        print(f"\n>>> 命中率已更新 ({len(updated_rates)} 檔): {json.dumps(updated_rates, indent=2)}")
+    except Exception as e:
+        print(f"\n>>> 命中率更新失敗（不影響回測結果儲存）: {e}")
+    # --- END NEW ---
 
     full_report = {
         "mode": mode,
@@ -395,14 +405,22 @@ def run(mode: str = "insample", start_date: str = "2026-01-01"):
     with open(summary_path, "w") as f:
         json.dump(full_report, f, indent=2, default=str)
 
-    print(f"\n=== 完整報告 ===")
-    print(json.dumps(full_report, indent=2, default=str))
-    print(f"\n已儲存: {hsi_csv_path}, {chart_path}, {summary_path}")
+    print(f"\n>>> 完整回測摘要已儲存至: {summary_path}")
+    print(f">>> HSI 回測CSV: {hsi_csv_path}")
+    print(f">>> HSI 圖表: {chart_path}")
+    if all_stock_rows:
+        print(f">>> 個股+觀察名單回測CSV: {PRED_DIR / 'daily_backtest_stocks.csv'}")
 
     return full_report
 
 
 if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "insample"
-    start_date = sys.argv[2] if len(sys.argv) > 2 else "2026-01-01"
-    run(mode=mode, start_date=start_date)
+    mode_arg = sys.argv[1] if len(sys.argv) > 1 else "insample"
+    start_arg = sys.argv[2] if len(sys.argv) > 2 else "2026-01-01"
+
+    if mode_arg not in ("insample", "walkforward"):
+        print("Usage: python run_daily_backtest.py [insample|walkforward] [start_date]")
+        sys.exit(1)
+
+    run(mode=mode_arg, start_date=start_arg)
+
