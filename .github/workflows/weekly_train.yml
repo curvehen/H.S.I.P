@@ -1,0 +1,31 @@
+name: Weekly HSI Model Retraining
+
+on:
+  schedule:
+    - cron: '0 1 * * 5'   # 星期五 01:00 UTC = 星期六 09:00 HKT
+  workflow_dispatch: {}     # 容許手動觸發，方便你測試
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run training pipeline
+        run: python src/train_model.py
+
+      - name: Commit updated models
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add models/ logs/
+          git commit -m "Weekly model retrain $(date -u +'%Y-%m-%d')" || echo "No changes"
+          git push
