@@ -46,6 +46,14 @@ from market_hours import HKT
 # directly from predict.py's result dict — see build_hsi_section()).
 from signal_generator import _build_worth_trading_reason
 
+def _parse_recipients(raw: str) -> list:
+    """EMAIL_TO may contain a single address or multiple comma-separated
+    addresses. Splits and strips whitespace around each one so
+    sendmail() receives a proper list of individual RFC 5321 addresses,
+    rather than one malformed combined string."""
+    if not raw:
+        return []
+    return [addr.strip() for addr in raw.split(",") if addr.strip()]
 
 def _get_smtp_port(default: int = 587) -> int:
     """os.environ.get(key, default) only falls back when the key is
@@ -340,26 +348,28 @@ def build_email_subject(result: dict) -> str:
 
 
 def send_email(result: dict):
-    if not (SMTP_USER and SMTP_PASSWORD and EMAIL_TO):
+    recipients = _parse_recipients(EMAIL_TO)
+    if not (SMTP_USER and SMTP_PASSWORD and recipients):
         print("email_report: SMTP credentials or recipient not configured — skipping send.")
         return False
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = build_email_subject(result)
     msg["From"] = SMTP_USER
-    msg["To"] = EMAIL_TO
+    msg["To"] = ", ".join(recipients)   # display header can stay comma-joined
     msg.attach(MIMEText(build_email_html(result), "html", "utf-8"))
 
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, [EMAIL_TO], msg.as_string())
-        print("email_report: email sent successfully.")
+            server.sendmail(SMTP_USER, recipients, msg.as_string())   # ← 真正嘅收件人list,逐個地址
+        print(f"email_report: email sent successfully to {len(recipients)} recipient(s).")
         return True
     except Exception as e:
         print(f"email_report: failed to send email ({e})")
         return False
+
 
 
 def _load_result() -> dict:
