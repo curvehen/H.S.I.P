@@ -80,10 +80,10 @@ from market_hours import HKT
 from signal_generator import _build_worth_trading_reason  # calibrated_signal no longer re-derived here
 
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-# SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("EMAIL_SENDER")
-SMTP_PASSWORD = os.environ.get("EMAIL_APP_PASSWORD")
-EMAIL_TO = os.environ.get("EMAIL_RECIPIENT")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+EMAIL_TO = os.environ.get("EMAIL_TO")
 
 def _get_smtp_port(default: int = 587) -> int:
     """os.environ.get(key, default) only falls back when the key is
