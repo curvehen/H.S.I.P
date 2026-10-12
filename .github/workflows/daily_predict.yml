@@ -2,8 +2,8 @@ name: Daily HSI Predict & Monitor
 
 on:
   schedule:
-    - cron: '0 11 * * 1-5'   # UTC 11:00 = 香港時間 19:00(週一至五)— PRELIMINARY run
-    - cron: '0 20 * * 0-4'   # UTC 20:00(週日至四)= 香港時間 04:00(週一至五)— OFFICIAL run
+    - cron: '20 11 * * 1-5'   # UTC 11:00 = 香港時間 19:00(週一至五)— PRELIMINARY run
+    - cron: '20 20 * * 0-4'   # UTC 20:00(週日至四)= 香港時間 04:00(週一至五)— OFFICIAL run
   workflow_dispatch:
     inputs:
       run_mode:
