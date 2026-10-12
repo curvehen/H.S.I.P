@@ -24,7 +24,7 @@ jobs:
   # ===========================================================================
   predict_preliminary:
     if: >
-      github.event.schedule == '0 11 * * 1-5' ||
+      github.event.schedule == '20 11 * * 1-5' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_mode == 'preliminary')
     runs-on: ubuntu-latest
     steps:
@@ -87,7 +87,7 @@ jobs:
   # ===========================================================================
   predict_official:
     if: >
-      github.event.schedule == '0 20 * * 0-4' ||
+      github.event.schedule == '20 20 * * 0-4' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_mode == 'official')
     runs-on: ubuntu-latest
     steps:
