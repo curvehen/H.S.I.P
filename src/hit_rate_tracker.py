@@ -6,7 +6,7 @@ Used to populate the "命中率" column in the email report.
 
 import json
 import pandas as pd
-from config import HIT_RATE_PATH, PRED_DIR
+from config import HIT_RATE_PATH, PRED_DIR, HSI_TICKER  # 新增 import
 
 
 def compute_hit_rates(min_samples: int = 5) -> dict:
@@ -28,7 +28,7 @@ def compute_hit_rates(min_samples: int = 5) -> dict:
     if hsi_backtest_path.exists():
         hsi_df = pd.read_csv(hsi_backtest_path)
         if len(hsi_df) >= min_samples:
-            hit_rates["HSI"] = round(float(hsi_df["directional_hit"].mean()) * 100, 1)
+            hit_rates[HSI_TICKER] = round(float(hsi_df["directional_hit"].mean()) * 100, 1)  # 改這行
 
     with open(HIT_RATE_PATH, "w") as f:
         json.dump(hit_rates, f, indent=2)
