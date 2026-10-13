@@ -171,11 +171,26 @@ SLIPPAGE_POINTS = 3             # Fixed HSI index-point slippage applied per sid
 WATCHLIST_TICKERS = ["1211.HK", "0968.HK"]   # BYD, Xinyi Solar — see stock_universe.get_watchlist()
 
 # =============================================================================
-# NEW — DashScope-compatible LLM integration (llm_analysis.py)
+# NEW — DashScope-compatible LLM integration (llm_analysis.py)   No TOKEN, No USE
 # =============================================================================
-DASHSCOPE_API_BASE = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")   # must be injected via GitHub Actions secret
-DASHSCOPE_MODEL_NAME = os.environ.get("DASHSCOPE_MODEL_NAME", "qwen-plus")
+# DASHSCOPE_API_BASE = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+# DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")   # must be injected via GitHub Actions secret
+# DASHSCOPE_MODEL_NAME = os.environ.get("DASHSCOPE_MODEL_NAME", "qwen-plus")
+# LLM_REQUEST_TIMEOUT_SECONDS = 20
+# LLM_MAX_TOKENS = 400
+# LLM_ANALYSIS_ENABLED = bool(DASHSCOPE_API_KEY)   # auto-disables cleanly if secret not configured
+
+# =============================================================================
+# NEW — Cloudflare Workers AI (OpenAI-compatible endpoint) LLM integration (llm_analysis.py)
+# =============================================================================
+CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "").strip()
+CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "").strip()
+CF_MODEL = os.environ.get("CF_MODEL", "@cf/qwen/qwen3-30b-a3b-fp8").strip()
+CF_API_BASE = (
+    f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/v1"
+    if CF_ACCOUNT_ID else ""
+)
 LLM_REQUEST_TIMEOUT_SECONDS = 20
 LLM_MAX_TOKENS = 400
-LLM_ANALYSIS_ENABLED = bool(DASHSCOPE_API_KEY)   # auto-disables cleanly if secret not configured
+LLM_ANALYSIS_ENABLED = bool(CF_ACCOUNT_ID and CF_API_TOKEN)   # auto-disables cleanly if secrets not configured
+
