@@ -41,9 +41,9 @@ from typing import Optional
 from openai import OpenAI
 
 from config import (
-    DASHSCOPE_API_BASE,
-    DASHSCOPE_API_KEY,
-    DASHSCOPE_MODEL_NAME,
+    CF_API_BASE,
+    CF_API_TOKEN,
+    CF_MODEL,
     LLM_ANALYSIS_ENABLED,
     LLM_MAX_TOKENS,
     LLM_REQUEST_TIMEOUT_SECONDS,
@@ -53,25 +53,27 @@ _client = None
 
 
 def _get_client() -> Optional[OpenAI]:
-    """Lazily instantiates the OpenAI-compatible DashScope client. Returns
-    None if the API key is missing or the module is disabled, so callers can
-    fail safely without crashing the main prediction pipeline."""
+    """Lazily instantiates the OpenAI-compatible Cloudflare Workers AI
+    client. Returns None if the account ID / API token is missing or the
+    module is disabled, so callers can fail safely without crashing the
+    main prediction pipeline."""
     global _client
     if _client is not None:
         return _client
-    if not LLM_ANALYSIS_ENABLED or not DASHSCOPE_API_KEY:
-        print("LLM_ANALYSIS: DASHSCOPE_API_KEY not set — commentary disabled.")
+    if not LLM_ANALYSIS_ENABLED or not CF_API_TOKEN:
+        print("LLM_ANALYSIS: CF_ACCOUNT_ID / CF_API_TOKEN not set — commentary disabled.")
         return None
     try:
         _client = OpenAI(
-            api_key=DASHSCOPE_API_KEY,
-            base_url=DASHSCOPE_API_BASE,
+            api_key=CF_API_TOKEN,
+            base_url=CF_API_BASE,
             timeout=LLM_REQUEST_TIMEOUT_SECONDS,
         )
         return _client
     except Exception as e:
         print(f"LLM_ANALYSIS: client init failed: {e}")
         return None
+
 
 
 def _safe_chat_completion(system_prompt: str, user_prompt: str) -> Optional[str]:
@@ -83,7 +85,7 @@ def _safe_chat_completion(system_prompt: str, user_prompt: str) -> Optional[str]
         return None
     try:
         response = client.chat.completions.create(
-            model=DASHSCOPE_MODEL_NAME,
+            model=CF_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
