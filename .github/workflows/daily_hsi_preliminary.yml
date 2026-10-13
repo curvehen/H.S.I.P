@@ -41,7 +41,9 @@ jobs:
         working-directory: src
         env:
           RUN_MODE: preliminary
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_MODEL: "@cf/qwen/qwen3-30b-a3b-fp8"
         run: python predict.py
 
       - name: Generate preliminary trading signal (labeled, non-binding)
