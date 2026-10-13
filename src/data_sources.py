@@ -20,7 +20,25 @@ def fetch_yfinance(ticker: str, start: str = "2010-01-01") -> pd.DataFrame:
         raise ValueError(f"yfinance returned empty data for {ticker}")
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [c[0] for c in df.columns]
+    # NEW: reject rows where the most recent Close is NaN -- yfinance can
+    # return a non-empty dataframe whose last row has unsettled/NaN OHLC
+    # data right after the latest session. Without this check, the caller
+    # silently accepts NaN as "success" and the Stooq fallback never fires.
+    if pd.isna(df["Close"].iloc[-1]):
+        raise ValueError(f"yfinance returned NaN Close for {ticker} on latest row ({df.index[-1]})")
     df["source"] = "yfinance"
+    return df
+
+
+def fetch_stooq(stooq_ticker: str) -> pd.DataFrame:
+    url = f"https://stooq.com/q/d/l/?s={stooq_ticker}&i=d"
+    df = pd.read_csv(url, index_col="Date", parse_dates=True)
+    if df.empty:
+        raise ValueError(f"stooq returned empty data for {stooq_ticker}")
+    # NEW: same NaN guard as fetch_yfinance, for consistency across sources.
+    if pd.isna(df["Close"].iloc[-1]):
+        raise ValueError(f"stooq returned NaN Close for {stooq_ticker} on latest row ({df.index[-1]})")
+    df["source"] = "stooq"
     return df
 
 
