@@ -1,5 +1,6 @@
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
+import pandas as pd
 import pandas_market_calendars as mcal
 
 HKT = ZoneInfo("Asia/Hong_Kong")
@@ -32,7 +33,10 @@ def get_market_session(now: datetime = None) -> str:
 
 
 def get_latest_usable_row(df, now=None):
-    """session-aware: 盤前/盤中時，剔除「今日未收市」嘅未完成一行。"""
+    """session-aware: 盤前/盤中時，剔除「今日未收市」嘅未完成一行。
+    NEW: 剔除之後再檢查 Close 是否 NaN，若是則繼續向上一行尋找，
+    直到搵到一行有效數值，或者耗盡所有行數為止（後者會 raise error，
+    交由上游 fetch_with_fallback 的 retry/fallback 機制處理）。"""
     session = get_market_session(now)
     now = now or datetime.now(HKT)
     today = now.date()
@@ -40,7 +44,22 @@ def get_latest_usable_row(df, now=None):
 
     if session in ("pre_market", "intraday") and last_date == today:
         df = df.iloc[:-1]          # 用返「前收」(上個完整交易日)
-    return df, session
+
+    # NEW: walk backwards until we find a row with a non-NaN Close.
+    import pandas as pd
+    max_lookback = min(len(df), 5)  # 最多向上望 5 行，避免無止境 loop
+    for i in range(max_lookback):
+        row_idx = -1 - i
+        if not pd.isna(df["Close"].iloc[row_idx]):
+            if i > 0:
+                df = df.iloc[:row_idx + 1] if row_idx != -1 else df
+            return df, session
+
+    raise ValueError(
+        f"get_latest_usable_row: no valid (non-NaN) Close found in the last "
+        f"{max_lookback} rows (session={session}, last_date={last_date})."
+    )
+
 
 
 _hkex_calendar = mcal.get_calendar("HKEX")
