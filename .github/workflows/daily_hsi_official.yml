@@ -1,0 +1,115 @@
+name: Daily HSI Official (4:00am HKT)
+
+on:
+  schedule:
+    - cron: '10 0 * * 0-4'   # UTC 20:00(週日至四)= 香港時間 04:00(週一至五)— OFFICIAL run
+  workflow_dispatch:
+
+jobs:
+  predict_official:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+
+      - name: Install TA-Lib system dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential wget
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib && ./configure --prefix=/usr && make && sudo make install
+
+      - name: Install TA-Lib Python wrapper
+        run: pip install TA-Lib
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run official prediction (logs CSV + writes feature snapshot)
+        working-directory: src
+        env:
+          RUN_MODE: official
+        run: python predict.py
+
+      - name: Generate official trading signal
+        working-directory: src
+        env:
+          RUN_MODE: official
+        run: python signal_generator.py
+
+      - name: Run drift evaluation
+        working-directory: src
+        run: python evaluate_drift.py
+
+      - name: Run daily backtest (for hit rate data)
+        working-directory: src
+        run: python run_daily_backtest.py
+
+      - name: Update hit rate tracker
+        working-directory: src
+        run: python hit_rate_tracker.py
+
+      - name: Check walk-forward calendar trigger
+        id: retrain_check
+        working-directory: src
+        run: |
+          python -c "
+          from walk_forward import should_retrain
+          import json
+          status = should_retrain()
+          print(json.dumps(status, indent=2))
+          with open('retrain_result.txt', 'w') as f:
+              f.write('retrain=' + str(status['should_retrain']))
+          "
+          cat retrain_result.txt >> "$GITHUB_OUTPUT"
+
+      - name: Retrain model (if triggered)
+        if: contains(steps.retrain_check.outputs.*, 'retrain=True')
+        working-directory: src
+        run: python train_model.py
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add logs/ 2>/dev/null || true
+          git add predictions/ 2>/dev/null || true
+          git add data/ 2>/dev/null || true
+          git add models/ 2>/dev/null || true
+          git add *.flag 2>/dev/null || true
+          git commit -m "auto: predict + signal + evaluate $(date +%F)" || echo "No changes to commit"
+          git pull --rebase origin main
+          git push
+
+      - name: Generate and send dashboard report
+        working-directory: src
+        env:
+          RUN_MODE: official
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          DASHBOARD_ENABLED: ${{ vars.DASHBOARD_ENABLED }}
+        run: python dashboard_report.py
+
+      - name: Send email report
+        working-directory: src
+        env:
+          RUN_MODE: official
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python email_report.py
