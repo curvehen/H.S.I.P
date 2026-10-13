@@ -41,6 +41,7 @@ jobs:
         working-directory: src
         env:
           RUN_MODE: official
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
         run: python predict.py
 
       - name: Generate official trading signal
