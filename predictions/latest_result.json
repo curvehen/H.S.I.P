@@ -3,9 +3,9 @@
   "run_mode": "official",
   "session": "intraday",
   "last_close": 24271.19921875,
-  "estimated_entry_price": 24279.60325081239,
+  "estimated_entry_price": 24279.713280932792,
   "gap_model_status": "FITTED",
-  "pred_close_return_blended": 0.0010637903521792836,
+  "pred_close_return_blended": 0.0010637903521792838,
   "pred_close_price": 24297.01868631473,
   "pred_high_price": 24379.996139049174,
   "pred_low_price": 24075.742180906793,
@@ -18,7 +18,7 @@
     "margin_pct": 5.8
   },
   "confidence": 0.7291461959481588,
-  "expected_move_pct": 0.000537419837535127,
+  "expected_move_pct": 0.0005374198375351268,
   "worth_trading": true,
   "threshold_used": {
     "MIN_EXPECTED_MOVE_PCT": 0.0002340651322682498,
@@ -44,7 +44,7 @@
   "sub_model_preds": {
     "lgb": -0.0005726929364518711,
     "rf": -0.0010584511998764255,
-    "ridge": 3.795292161516304e-05
+    "ridge": 3.795292161516391e-05
   },
   "bottom_up_return": 0.003465605636750899,
   "stock_predictions": [
@@ -79,7 +79,7 @@
         "label": "\u4e2d",
         "margin_pct": 5.9
       },
-      "hit_rate": "84.2%",
+      "hit_rate": "83.7%",
       "weight": 0.10508474576271185
     },
     {
@@ -96,7 +96,7 @@
         "label": "\u5f31",
         "margin_pct": 0.5
       },
-      "hit_rate": "62.6%",
+      "hit_rate": "62.1%",
       "weight": 0.0983050847457627
     },
     {
