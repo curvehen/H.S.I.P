@@ -191,6 +191,6 @@ CF_API_BASE = (
     if CF_ACCOUNT_ID else ""
 )
 LLM_REQUEST_TIMEOUT_SECONDS = 20
-LLM_MAX_TOKENS = 2000
+LLM_MAX_TOKENS = 3000
 LLM_ANALYSIS_ENABLED = bool(CF_ACCOUNT_ID and CF_API_TOKEN)   # auto-disables cleanly if secrets not configured
 
