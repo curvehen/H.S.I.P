@@ -38,7 +38,7 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from config import LATEST_RESULT_PATH, PRED_DIR, HSI_TICKER, DASHSCOPE_MODEL_NAME
+from config import LATEST_RESULT_PATH, PRED_DIR, HSI_TICKER, CF_MODEL
 from hit_rate_tracker import get_hit_rate
 from market_hours import HKT
 # Reused rather than re-derived, to keep the email and the signal text in
@@ -311,7 +311,7 @@ def build_llm_section(result: dict) -> str:
           {rows}
         </table>
         """
-    html += f'<p style="color:#999;font-size:11px;margin-top:4px;">模型: {DASHSCOPE_MODEL_NAME}</p>'
+    html += f'<p style="color:#999;font-size:11px;margin-top:4px;">模型: {CF_MODEL}</p>'
     return html
 
 
