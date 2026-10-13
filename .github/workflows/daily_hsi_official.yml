@@ -2,7 +2,7 @@ name: Daily HSI Official (4:00am HKT)
 
 on:
   schedule:
-    - cron: '10 0 * * 0-4'   # UTC 20:00(週日至四)= 香港時間 04:00(週一至五)— OFFICIAL run
+    - cron: '10 20 * * 0-4'   # UTC 20:00(週日至四)= 香港時間 04:00(週一至五)— OFFICIAL run
   workflow_dispatch:
 
 jobs:
