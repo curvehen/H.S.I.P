@@ -15,4 +15,4 @@ arch
 optuna
 akshare
 pandas_market_calendars
-feedparser
+openai
