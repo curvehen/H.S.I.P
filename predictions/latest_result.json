@@ -3,22 +3,22 @@
   "run_mode": "official",
   "session": "intraday",
   "last_close": 24271.19921875,
-  "estimated_entry_price": 24279.713280932792,
+  "estimated_entry_price": 24279.21814539097,
   "gap_model_status": "FITTED",
-  "pred_close_return_blended": 0.0010637903521792838,
-  "pred_close_price": 24297.01868631473,
-  "pred_high_price": 24379.996139049174,
-  "pred_low_price": 24075.742180906793,
+  "pred_close_return_blended": 0.0008493400963187987,
+  "pred_close_price": 24291.813721432223,
+  "pred_high_price": 24365.66196029183,
+  "pred_low_price": 24075.43996931943,
   "pred_close_q10": -0.015385446975197914,
-  "pred_close_q90": 0.012725284882117008,
+  "pred_close_q90": 0.01232555260336343,
   "regime": "BEAR",
-  "p_up": 0.44180327172473016,
+  "p_up": 0.3788881198486871,
   "signal_strength": {
     "label": "\u4e2d",
-    "margin_pct": 5.8
+    "margin_pct": 12.1
   },
-  "confidence": 0.7291461959481588,
-  "expected_move_pct": 0.0005374198375351268,
+  "confidence": 0.7291115429667316,
+  "expected_move_pct": 0.000894836930635935,
   "worth_trading": true,
   "threshold_used": {
     "MIN_EXPECTED_MOVE_PCT": 0.0002340651322682498,
@@ -27,7 +27,7 @@
   },
   "raw_direction": "LONG",
   "calibrated_signal": "LONG",
-  "risk_reward_ratio": 0.49,
+  "risk_reward_ratio": 0.42,
   "position_size_pct": 0.0,
   "raw_kelly_fraction": 0.0,
   "fractional_kelly": 0.0,
@@ -42,9 +42,9 @@
   },
   "ensemble_weight_source": "static_fallback",
   "sub_model_preds": {
-    "lgb": -0.0005726929364518711,
-    "rf": -0.0010584511998764255,
-    "ridge": 3.795292161516391e-05
+    "lgb": -0.0011633911501364826,
+    "rf": -0.0015285360558662134,
+    "ridge": 3.714925244056996e-05
   },
   "bottom_up_return": 0.003465605636750899,
   "stock_predictions": [
@@ -96,7 +96,7 @@
         "label": "\u5f31",
         "margin_pct": 0.5
       },
-      "hit_rate": "62.1%",
+      "hit_rate": "62.6%",
       "weight": 0.0983050847457627
     },
     {
@@ -367,10 +367,10 @@
     "1810.HK": null,
     "2318.HK": null,
     "0016.HK": null,
-    "0027.HK": null,
+    "0027.HK": "\u9280\u6cb3\u5a1b\u6a02\u73fe\u50f932.12\uff0c\u6a21\u578b\u9810\u6e2c\u4e0a\u5347\u6a5f\u738752.7%\uff0c\u6b77\u53f2\u547d\u4e2d\u73877",
     "0883.HK": null,
     "1398.HK": null,
-    "3988.HK": null,
+    "3988.HK": "\u4e2d\u570b\u9280\u884c",
     "0002.HK": null,
     "0001.HK": null,
     "1211.HK": null,
