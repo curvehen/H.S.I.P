@@ -3,22 +3,22 @@
   "run_mode": "official",
   "session": "intraday",
   "last_close": 24271.19921875,
-  "estimated_entry_price": 24281.19868755827,
+  "estimated_entry_price": 24280.373461655225,
   "gap_model_status": "FITTED",
-  "pred_close_return_blended": 0.001206504952606245,
-  "pred_close_price": 24300.482540813115,
-  "pred_high_price": 24383.437576383367,
-  "pred_low_price": 24104.266727444356,
-  "pred_close_q10": -0.01487436047179991,
-  "pred_close_q90": 0.01274873442919547,
+  "pred_close_return_blended": 0.0011809981377371552,
+  "pred_close_price": 24299.86345982799,
+  "pred_high_price": 24382.72034899566,
+  "pred_low_price": 24097.638805298,
+  "pred_close_q10": -0.014796011749283963,
+  "pred_close_q90": 0.012521078388043545,
   "regime": "BEAR",
   "p_up": 0.4454253770195933,
   "signal_strength": {
     "label": "\u4e2d",
     "margin_pct": 5.5
   },
-  "confidence": 0.7288119050773981,
-  "expected_move_pct": 0.0002995621701568582,
+  "confidence": 0.7290338039443196,
+  "expected_move_pct": 0.0003420735282720076,
   "worth_trading": true,
   "threshold_used": {
     "MIN_EXPECTED_MOVE_PCT": 0.0002340651322682498,
@@ -27,7 +27,7 @@
   },
   "raw_direction": "LONG",
   "calibrated_signal": "LONG",
-  "risk_reward_ratio": 0.58,
+  "risk_reward_ratio": 0.56,
   "position_size_pct": 0.0,
   "raw_kelly_fraction": 0.0,
   "fractional_kelly": 0.0,
@@ -43,8 +43,8 @@
   "ensemble_weight_source": "static_fallback",
   "sub_model_preds": {
     "lgb": -0.0002899923700027347,
-    "rf": -0.0006389212973386411,
-    "ridge": 4.170337776326525e-05
+    "rf": -0.0007633761944446825,
+    "ridge": 4.022998427651112e-05
   },
   "bottom_up_return": 0.003465605636750899,
   "stock_predictions": [
