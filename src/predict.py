@@ -330,8 +330,10 @@ def _compute_risk_reward_ratio(entry_price: float, pred_high_price: float,
                                 pred_low_price: float, raw_direction: str) -> float:
     """Direction-aware reward/risk. LONG: reward = upside to pred_high,
     risk = downside to pred_low. SHORT: reward = downside to pred_low,
-    risk = upside to pred_high. Returns None if risk leg is zero/invalid."""
-    if entry_price is None:
+    risk = upside to pred_high. Returns None if entry_price/risk is
+    missing, NaN, or non-positive."""
+    # NEW: NaN-safe check on entry_price (pd.isna also safely handles None).
+    if entry_price is None or pd.isna(entry_price):
         return None
     if raw_direction == "LONG":
         reward = pred_high_price - entry_price
@@ -339,9 +341,12 @@ def _compute_risk_reward_ratio(entry_price: float, pred_high_price: float,
     else:
         reward = entry_price - pred_low_price
         risk = pred_high_price - entry_price
-    if risk is None or risk <= 0:
+    # NEW: pd.isna(risk) catches NaN, which "risk <= 0" silently misses
+    # (NaN comparisons in Python always evaluate to False).
+    if risk is None or pd.isna(risk) or risk <= 0:
         return None
     return round(reward / risk, 2)
+
 
 
 def run_daily_prediction(run_mode: str = None):
