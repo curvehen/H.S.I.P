@@ -1,0 +1,61 @@
+name: Daily HSI Preliminary (7:20pm HKT)
+
+on:
+  schedule:
+    - cron: '20 11 * * 1-5'   # UTC 11:20 = 香港時間 19:20(週一至五)— PRELIMINARY run
+  workflow_dispatch:
+
+jobs:
+  predict_preliminary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+
+      - name: Install TA-Lib system dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential wget
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib && ./configure --prefix=/usr && make && sudo make install
+
+      - name: Install TA-Lib Python wrapper
+        run: pip install TA-Lib
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run preliminary prediction (writes isolated preview snapshot only)
+        working-directory: src
+        env:
+          RUN_MODE: preliminary
+        run: python predict.py
+
+      - name: Generate preliminary trading signal (labeled, non-binding)
+        working-directory: src
+        env:
+          RUN_MODE: preliminary
+        run: python signal_generator.py
+
+      - name: Send preliminary email (must display "初步方向,非交易信號")
+        working-directory: src
+        env:
+          RUN_MODE: preliminary
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python email_report.py
