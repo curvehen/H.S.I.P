@@ -161,7 +161,7 @@ def _build_market_prompt(result: dict) -> str:
         "咩情況下唔應該入場：\n\n",
         "失效條件：出現咩數據/走勢會推翻上面預測\n\n",
         "明日風險事件：數據、業績、政策、外圍事件\n\n",
-        "一句總結：
+        "一句總結："
         f"數據:{json.dumps(payload, ensure_ascii=False)}"
     )
 
