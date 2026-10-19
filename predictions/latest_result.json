@@ -1,11 +1,11 @@
 {
-  "date": "2026-10-19",
+  "date": "2026-10-20",
   "run_mode": "official",
   "session": "pre_market",
   "last_close": 24186.830078125,
-  "estimated_entry_price": 24203.17698552928,
+  "estimated_entry_price": 24207.37176312559,
   "gap_model_status": "FITTED",
-  "pred_close_return_blended": -0.002968441323513667,
+  "pred_close_return_blended": -0.0029684413235136677,
   "pred_close_price": 24115.03289223629,
   "pred_high_price": 24180.492622225862,
   "pred_low_price": 23862.613480142052,
@@ -18,7 +18,7 @@
     "margin_pct": 29.1
   },
   "confidence": 0.7531175336840756,
-  "expected_move_pct": 0.005313261746721337,
+  "expected_move_pct": 0.005313261746721338,
   "worth_trading": true,
   "threshold_used": {
     "MIN_EXPECTED_MOVE_PCT": 0.0002340651322682498,
@@ -44,7 +44,7 @@
   "sub_model_preds": {
     "lgb": -0.008229427517572436,
     "rf": -0.00770674230290703,
-    "ridge": 0.00016381561824280666
+    "ridge": 0.0001638156182428058
   },
   "bottom_up_return": 0.0005487893112978377,
   "stock_predictions": [
