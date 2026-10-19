@@ -3,7 +3,7 @@
   "run_mode": "official",
   "session": "pre_market",
   "last_close": 24186.830078125,
-  "estimated_entry_price": 24207.37176312559,
+  "estimated_entry_price": 24208.43444011666,
   "gap_model_status": "FITTED",
   "pred_close_return_blended": -0.0029684413235136677,
   "pred_close_price": 24115.03289223629,
