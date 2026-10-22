@@ -3,7 +3,7 @@
   "run_mode": "official",
   "session": "pre_market",
   "last_close": 24186.830078125,
-  "estimated_entry_price": 24179.319491905037,
+  "estimated_entry_price": 24178.601345693733,
   "gap_model_status": "FITTED",
   "pred_close_return_blended": -0.0012306774145286825,
   "pred_close_price": 24157.06389261881,
@@ -27,11 +27,11 @@
   },
   "raw_direction": "SHORT",
   "calibrated_signal": "SHORT",
-  "risk_reward_ratio": 269.97,
+  "risk_reward_ratio": 167.08,
   "position_size_pct": 0.25,
-  "raw_kelly_fraction": 0.7906,
-  "fractional_kelly": 0.3953,
-  "confidence_scaled_kelly": 0.2977,
+  "raw_kelly_fraction": 0.7902,
+  "fractional_kelly": 0.3951,
+  "confidence_scaled_kelly": 0.2975,
   "regime_dampener": 1.0,
   "position_capped": true,
   "position_reason": "computed",
@@ -62,7 +62,7 @@
         "label": "\u5f37",
         "margin_pct": 25.1
       },
-      "hit_rate": "79.6%",
+      "hit_rate": "79.7%",
       "weight": 0.1372881355932203
     },
     {
@@ -79,7 +79,7 @@
         "label": "\u5f37",
         "margin_pct": 16.9
       },
-      "hit_rate": "83.7%",
+      "hit_rate": "83.8%",
       "weight": 0.10508474576271185
     },
     {
@@ -96,7 +96,7 @@
         "label": "\u5f37",
         "margin_pct": 15.6
       },
-      "hit_rate": "61.7%",
+      "hit_rate": "61.9%",
       "weight": 0.0983050847457627
     },
     {
@@ -113,7 +113,7 @@
         "label": "\u4e2d",
         "margin_pct": 9.6
       },
-      "hit_rate": "73.0%",
+      "hit_rate": "73.1%",
       "weight": 0.09322033898305083
     },
     {
@@ -130,7 +130,7 @@
         "label": "\u5f31",
         "margin_pct": 4.2
       },
-      "hit_rate": "75.0%",
+      "hit_rate": "75.1%",
       "weight": 0.08813559322033897
     },
     {
@@ -147,7 +147,7 @@
         "label": "\u5f31",
         "margin_pct": 3.7
       },
-      "hit_rate": "77.0%",
+      "hit_rate": "76.6%",
       "weight": 0.07627118644067796
     },
     {
@@ -164,7 +164,7 @@
         "label": "\u5f37",
         "margin_pct": 31.5
       },
-      "hit_rate": "77.0%",
+      "hit_rate": "77.2%",
       "weight": 0.07457627118644067
     },
     {
@@ -181,7 +181,7 @@
         "label": "\u4e2d",
         "margin_pct": 8.0
       },
-      "hit_rate": "83.2%",
+      "hit_rate": "82.7%",
       "weight": 0.050847457627118633
     },
     {
@@ -198,7 +198,7 @@
         "label": "\u4e2d",
         "margin_pct": 7.4
       },
-      "hit_rate": "77.6%",
+      "hit_rate": "77.2%",
       "weight": 0.04745762711864406
     },
     {
@@ -215,7 +215,7 @@
         "label": "\u5f37",
         "margin_pct": 23.4
       },
-      "hit_rate": "80.6%",
+      "hit_rate": "80.2%",
       "weight": 0.0423728813559322
     },
     {
@@ -232,7 +232,7 @@
         "label": "\u5f31",
         "margin_pct": 3.2
       },
-      "hit_rate": "69.4%",
+      "hit_rate": "69.5%",
       "weight": 0.033898305084745756
     },
     {
@@ -249,7 +249,7 @@
         "label": "\u5f31",
         "margin_pct": 0.5
       },
-      "hit_rate": "78.1%",
+      "hit_rate": "77.7%",
       "weight": 0.033898305084745756
     },
     {
@@ -266,7 +266,7 @@
         "label": "\u4e2d",
         "margin_pct": 5.1
       },
-      "hit_rate": "78.1%",
+      "hit_rate": "77.7%",
       "weight": 0.032203389830508466
     },
     {
@@ -283,7 +283,7 @@
         "label": "\u5f31",
         "margin_pct": 2.4
       },
-      "hit_rate": "65.8%",
+      "hit_rate": "65.5%",
       "weight": 0.03050847457627118
     },
     {
@@ -300,7 +300,7 @@
         "label": "\u4e2d",
         "margin_pct": 14.8
       },
-      "hit_rate": "66.8%",
+      "hit_rate": "66.5%",
       "weight": 0.028813559322033895
     },
     {
@@ -317,7 +317,7 @@
         "label": "\u4e2d",
         "margin_pct": 10.2
       },
-      "hit_rate": "74.5%",
+      "hit_rate": "74.1%",
       "weight": 0.027118644067796606
     }
   ],
@@ -336,7 +336,7 @@
         "label": "\u5f31",
         "margin_pct": 0.2
       },
-      "hit_rate": "73.0%"
+      "hit_rate": "73.1%"
     },
     {
       "ticker": "0968.HK",
@@ -352,7 +352,7 @@
         "label": "\u5f37",
         "margin_pct": 22.9
       },
-      "hit_rate": "70.9%"
+      "hit_rate": "70.6%"
     }
   ],
   "llm_commentary": null,
