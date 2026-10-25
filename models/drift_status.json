@@ -1,6 +1,6 @@
 {
-  "evaluated_at": "2026-10-22T23:30:41.219004",
-  "rolling_accuracy": 0.6,
+  "evaluated_at": "2026-10-25T22:31:16.432874",
+  "rolling_accuracy": 1.0,
   "drift_detected": false,
   "retrain_needed": false,
   "reasons": []
