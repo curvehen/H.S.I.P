@@ -2,39 +2,39 @@
   "date": "2026-11-03",
   "run_mode": "official",
   "session": "intraday",
-  "last_close": 23294.419921875,
-  "estimated_entry_price": 23299.034808840217,
+  "last_close": 23393.3203125,
+  "estimated_entry_price": 23397.900056112863,
   "gap_model_status": "FITTED",
-  "pred_close_return_blended": -0.0011625538561186248,
-  "pred_close_price": 23267.338904168777,
-  "pred_high_price": 23289.14843255275,
-  "pred_low_price": 23005.938017205244,
-  "pred_close_q10": -0.016722568835309395,
-  "pred_close_q90": 0.00713304507881193,
+  "pred_close_return_blended": 0.0008890496395991148,
+  "pred_close_price": 23414.118135492852,
+  "pred_high_price": 23477.183042868626,
+  "pred_low_price": 23210.953712815524,
+  "pred_close_q10": -0.014312598317153194,
+  "pred_close_q90": 0.009632046276349289,
   "regime": "BEAR",
-  "p_up": 0.23783440972908027,
+  "p_up": 0.30661360132456617,
   "signal_strength": {
     "label": "\u5f37",
-    "margin_pct": 26.2
+    "margin_pct": 19.3
   },
-  "confidence": 0.7928767839082712,
-  "expected_move_pct": 0.0049814881681096304,
+  "confidence": 0.7558019439597469,
+  "expected_move_pct": 0.0015621490085800645,
   "worth_trading": true,
   "threshold_used": {
     "MIN_EXPECTED_MOVE_PCT": 0.0002340651322682498,
     "MIN_CONFIDENCE": 0.5712758578682838,
     "source": "calibrated"
   },
-  "raw_direction": "SHORT",
-  "calibrated_signal": "SHORT",
-  "risk_reward_ratio": null,
+  "raw_direction": "LONG",
+  "calibrated_signal": "LONG",
+  "risk_reward_ratio": 0.42,
   "position_size_pct": 0.0,
   "raw_kelly_fraction": 0.0,
   "fractional_kelly": 0.0,
   "confidence_scaled_kelly": 0.0,
   "regime_dampener": null,
   "position_capped": false,
-  "position_reason": "risk_reward_ratio unavailable (invalid risk leg) \u2014 sizing skipped",
+  "position_reason": "raw_kelly 0.0000 <= min_edge 0.0",
   "ensemble_weights_used": {
     "lgb": 0.33587290984569534,
     "rf": 0.3377161309940721,
@@ -42,9 +42,9 @@
   },
   "ensemble_weight_source": "static_fallback",
   "sub_model_preds": {
-    "lgb": -0.005785402119457512,
-    "rf": -0.009132773545201523,
-    "ridge": 0.00014079375100861918
+    "lgb": -0.002671338374458457,
+    "rf": -0.0022161798788422303,
+    "ridge": 0.0002558764537690561
   },
   "bottom_up_return": 0.004565847611867883,
   "stock_predictions": [
@@ -62,7 +62,7 @@
         "label": "\u5f31",
         "margin_pct": 0.4
       },
-      "hit_rate": "79.8%",
+      "hit_rate": "80.0%",
       "weight": 0.1372881355932203
     },
     {
@@ -79,7 +79,7 @@
         "label": "\u5f31",
         "margin_pct": 2.7
       },
-      "hit_rate": "82.8%",
+      "hit_rate": "82.4%",
       "weight": 0.10508474576271185
     },
     {
@@ -96,7 +96,7 @@
         "label": "\u4e2d",
         "margin_pct": 14.8
       },
-      "hit_rate": "62.1%",
+      "hit_rate": "62.0%",
       "weight": 0.0983050847457627
     },
     {
@@ -113,7 +113,7 @@
         "label": "\u4e2d",
         "margin_pct": 12.8
       },
-      "hit_rate": "72.4%",
+      "hit_rate": "72.2%",
       "weight": 0.09322033898305083
     },
     {
@@ -130,7 +130,7 @@
         "label": "\u5f31",
         "margin_pct": 4.1
       },
-      "hit_rate": "74.9%",
+      "hit_rate": "74.6%",
       "weight": 0.08813559322033897
     },
     {
@@ -147,7 +147,7 @@
         "label": "\u4e2d",
         "margin_pct": 13.6
       },
-      "hit_rate": "76.4%",
+      "hit_rate": "76.6%",
       "weight": 0.07627118644067796
     },
     {
@@ -164,7 +164,7 @@
         "label": "\u5f37",
         "margin_pct": 37.0
       },
-      "hit_rate": "76.8%",
+      "hit_rate": "76.6%",
       "weight": 0.07457627118644067
     },
     {
@@ -181,7 +181,7 @@
         "label": "\u4e2d",
         "margin_pct": 6.9
       },
-      "hit_rate": "80.8%",
+      "hit_rate": "80.5%",
       "weight": 0.050847457627118633
     },
     {
@@ -198,7 +198,7 @@
         "label": "\u5f31",
         "margin_pct": 0.9
       },
-      "hit_rate": "76.4%",
+      "hit_rate": "76.6%",
       "weight": 0.04745762711864406
     },
     {
@@ -215,7 +215,7 @@
         "label": "\u5f31",
         "margin_pct": 0.4
       },
-      "hit_rate": "78.8%",
+      "hit_rate": "78.5%",
       "weight": 0.0423728813559322
     },
     {
@@ -232,7 +232,7 @@
         "label": "\u5f31",
         "margin_pct": 0.5
       },
-      "hit_rate": "68.5%",
+      "hit_rate": "68.8%",
       "weight": 0.033898305084745756
     },
     {
@@ -249,7 +249,7 @@
         "label": "\u4e2d",
         "margin_pct": 11.9
       },
-      "hit_rate": "77.3%",
+      "hit_rate": "76.6%",
       "weight": 0.033898305084745756
     },
     {
@@ -266,7 +266,7 @@
         "label": "\u5f37",
         "margin_pct": 16.9
       },
-      "hit_rate": "76.4%",
+      "hit_rate": "76.6%",
       "weight": 0.032203389830508466
     },
     {
@@ -283,7 +283,7 @@
         "label": "\u4e2d",
         "margin_pct": 14.1
       },
-      "hit_rate": "65.5%",
+      "hit_rate": "65.9%",
       "weight": 0.03050847457627118
     },
     {
@@ -300,7 +300,7 @@
         "label": "\u4e2d",
         "margin_pct": 7.5
       },
-      "hit_rate": "66.0%",
+      "hit_rate": "65.4%",
       "weight": 0.028813559322033895
     },
     {
@@ -317,7 +317,7 @@
         "label": "\u5f37",
         "margin_pct": 16.1
       },
-      "hit_rate": "73.4%",
+      "hit_rate": "73.2%",
       "weight": 0.027118644067796606
     }
   ],
@@ -336,7 +336,7 @@
         "label": "\u4e2d",
         "margin_pct": 8.8
       },
-      "hit_rate": "72.4%"
+      "hit_rate": "72.2%"
     },
     {
       "ticker": "0968.HK",
@@ -352,7 +352,7 @@
         "label": "\u5f37",
         "margin_pct": 17.1
       },
-      "hit_rate": "70.0%"
+      "hit_rate": "69.8%"
     }
   ],
   "llm_commentary": null,
