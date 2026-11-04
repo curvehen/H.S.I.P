@@ -3,22 +3,22 @@
   "run_mode": "official",
   "session": "pre_market",
   "last_close": 23505.01953125,
-  "estimated_entry_price": 23517.9854260831,
+  "estimated_entry_price": 23515.055331726227,
   "gap_model_status": "FITTED",
-  "pred_close_return_blended": -0.000246315311220743,
-  "pred_close_price": 23499.22988504891,
-  "pred_high_price": 23610.101454600488,
+  "pred_close_return_blended": -0.00022445838865220165,
+  "pred_close_price": 23499.74363244078,
+  "pred_high_price": 23609.902973532582,
   "pred_low_price": 23353.426769578047,
-  "pred_close_q10": -0.011081926770922157,
-  "pred_close_q90": 0.012350846044987878,
+  "pred_close_q10": -0.011021323329649831,
+  "pred_close_q90": 0.01211209413075953,
   "regime": "BEAR",
-  "p_up": 0.561702564542635,
+  "p_up": 0.5666111682359795,
   "signal_strength": {
     "label": "\u4e2d",
-    "margin_pct": 6.2
+    "margin_pct": 6.7
   },
-  "confidence": 0.7487026828601139,
-  "expected_move_pct": 0.0006859473887742531,
+  "confidence": 0.749240737786888,
+  "expected_move_pct": 0.0006495191844933508,
   "worth_trading": true,
   "threshold_used": {
     "MIN_EXPECTED_MOVE_PCT": 0.0002340651322682498,
@@ -27,11 +27,11 @@
   },
   "raw_direction": "SHORT",
   "calibrated_signal": "SHORT",
-  "risk_reward_ratio": 1.79,
-  "position_size_pct": 0.0466,
-  "raw_kelly_fraction": 0.1245,
-  "fractional_kelly": 0.0622,
-  "confidence_scaled_kelly": 0.0466,
+  "risk_reward_ratio": 1.7,
+  "position_size_pct": 0.0375,
+  "raw_kelly_fraction": 0.1001,
+  "fractional_kelly": 0.05,
+  "confidence_scaled_kelly": 0.0375,
   "regime_dampener": 1.0,
   "position_capped": false,
   "position_reason": "computed",
@@ -42,9 +42,9 @@
   },
   "ensemble_weight_source": "static_fallback",
   "sub_model_preds": {
-    "lgb": -0.0019020046575706235,
-    "rf": -0.00035320194908248646,
-    "ridge": 0.00022109075624612883
+    "lgb": -0.001811071611157019,
+    "rf": -0.00034260119006417896,
+    "ridge": 0.00022815611356593593
   },
   "bottom_up_return": 0.0004131328051095221,
   "stock_predictions": [
@@ -96,7 +96,7 @@
         "label": "\u4e2d",
         "margin_pct": 7.4
       },
-      "hit_rate": "62.0%",
+      "hit_rate": "62.4%",
       "weight": 0.0983050847457627
     },
     {
@@ -317,7 +317,7 @@
         "label": "\u5f37",
         "margin_pct": 16.7
       },
-      "hit_rate": "73.2%",
+      "hit_rate": "72.7%",
       "weight": 0.027118644067796606
     }
   ],
