@@ -1,7 +1,9 @@
 {
-  "evaluated_at": "2026-11-08T23:50:33.413495",
-  "rolling_accuracy": 0.8,
+  "evaluated_at": "2026-11-10T02:42:22.418048",
+  "rolling_accuracy": 0.4,
   "drift_detected": false,
-  "retrain_needed": false,
-  "reasons": []
+  "retrain_needed": true,
+  "reasons": [
+    "rolling_accuracy 0.400 < threshold 0.45"
+  ]
 }
