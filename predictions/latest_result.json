@@ -3,22 +3,22 @@
   "run_mode": "official",
   "session": "pre_market",
   "last_close": 24069.16015625,
-  "estimated_entry_price": 24079.847776969822,
+  "estimated_entry_price": 24079.96002228979,
   "gap_model_status": "FITTED",
-  "pred_close_return_blended": -0.0002558320639685913,
-  "pred_close_price": 24063.002493329237,
-  "pred_high_price": 24173.874572424473,
+  "pred_close_return_blended": -0.00025752628352170123,
+  "pred_close_price": 24062.96171488747,
+  "pred_high_price": 24162.35241819594,
   "pred_low_price": 23876.78703885421,
-  "pred_close_q10": -0.0121991273350282,
-  "pred_close_q90": 0.01325066743283271,
+  "pred_close_q10": -0.01218776410147315,
+  "pred_close_q90": 0.012784079625868042,
   "regime": "BEAR",
-  "p_up": 0.459386540590848,
+  "p_up": 0.46364380621818896,
   "signal_strength": {
     "label": "\u5f31",
-    "margin_pct": 4.1
+    "margin_pct": 3.6
   },
-  "confidence": 0.7238856059850654,
-  "expected_move_pct": 0.0007227164018206304,
+  "confidence": 0.7235352164540393,
+  "expected_move_pct": 0.0007255401010758137,
   "worth_trading": true,
   "threshold_used": {
     "MIN_EXPECTED_MOVE_PCT": 0.0002340651322682498,
@@ -27,11 +27,11 @@
   },
   "raw_direction": "SHORT",
   "calibrated_signal": "SHORT",
-  "risk_reward_ratio": 2.16,
-  "position_size_pct": 0.1187,
-  "raw_kelly_fraction": 0.3279,
-  "fractional_kelly": 0.164,
-  "confidence_scaled_kelly": 0.1187,
+  "risk_reward_ratio": 2.47,
+  "position_size_pct": 0.1261,
+  "raw_kelly_fraction": 0.3486,
+  "fractional_kelly": 0.1743,
+  "confidence_scaled_kelly": 0.1261,
   "regime_dampener": 1.0,
   "position_capped": false,
   "position_reason": "computed",
@@ -44,7 +44,7 @@
   "sub_model_preds": {
     "lgb": -0.001137760195271746,
     "rf": -0.0008271015123402945,
-    "ridge": -0.00018764091683308405
+    "ridge": -0.0001962916657615144
   },
   "bottom_up_return": 0.00044449444280946735,
   "stock_predictions": [
@@ -113,7 +113,7 @@
         "label": "\u5f31",
         "margin_pct": 3.3
       },
-      "hit_rate": "72.2%",
+      "hit_rate": "72.6%",
       "weight": 0.09322033898305083
     },
     {
@@ -249,7 +249,7 @@
         "label": "\u5f37",
         "margin_pct": 17.7
       },
-      "hit_rate": "76.9%",
+      "hit_rate": "76.4%",
       "weight": 0.033898305084745756
     },
     {
@@ -283,7 +283,7 @@
         "label": "\u5f31",
         "margin_pct": 1.8
       },
-      "hit_rate": "65.1%",
+      "hit_rate": "65.6%",
       "weight": 0.03050847457627118
     },
     {
