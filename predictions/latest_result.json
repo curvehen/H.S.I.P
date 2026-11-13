@@ -1,24 +1,24 @@
 {
-  "date": "2026-11-12",
+  "date": "2026-11-13",
   "run_mode": "official",
-  "session": "intraday",
-  "last_close": 24557.0390625,
-  "estimated_entry_price": 24585.14466848272,
+  "session": "pre_market",
+  "last_close": 24069.16015625,
+  "estimated_entry_price": 24079.847776969822,
   "gap_model_status": "FITTED",
-  "pred_close_return_blended": -0.0003826579154606668,
-  "pred_close_price": 24547.642117122457,
-  "pred_high_price": 24672.106294829515,
-  "pred_low_price": 24364.94310082077,
-  "pred_close_q10": -0.014939666995788844,
-  "pred_close_q90": 0.014484429070156948,
+  "pred_close_return_blended": -0.0002558320639685913,
+  "pred_close_price": 24063.002493329237,
+  "pred_high_price": 24173.874572424473,
+  "pred_low_price": 23876.78703885421,
+  "pred_close_q10": -0.0121991273350282,
+  "pred_close_q90": 0.01325066743283271,
   "regime": "BEAR",
-  "p_up": 0.278381684930141,
+  "p_up": 0.459386540590848,
   "signal_strength": {
-    "label": "\u5f37",
-    "margin_pct": 22.2
+    "label": "\u5f31",
+    "margin_pct": 4.1
   },
-  "confidence": 0.7446047538594441,
-  "expected_move_pct": 0.0011153313989545654,
+  "confidence": 0.7238856059850654,
+  "expected_move_pct": 0.0007227164018206304,
   "worth_trading": true,
   "threshold_used": {
     "MIN_EXPECTED_MOVE_PCT": 0.0002340651322682498,
@@ -27,11 +27,11 @@
   },
   "raw_direction": "SHORT",
   "calibrated_signal": "SHORT",
-  "risk_reward_ratio": 2.53,
-  "position_size_pct": 0.2277,
-  "raw_kelly_fraction": 0.6116,
-  "fractional_kelly": 0.3058,
-  "confidence_scaled_kelly": 0.2277,
+  "risk_reward_ratio": 2.16,
+  "position_size_pct": 0.1187,
+  "raw_kelly_fraction": 0.3279,
+  "fractional_kelly": 0.164,
+  "confidence_scaled_kelly": 0.1187,
   "regime_dampener": 1.0,
   "position_capped": false,
   "position_reason": "computed",
@@ -42,25 +42,25 @@
   },
   "ensemble_weight_source": "static_fallback",
   "sub_model_preds": {
-    "lgb": -0.0014835236393555675,
-    "rf": -0.0019285584481700839,
-    "ridge": 0.00010492693082582655
+    "lgb": -0.001137760195271746,
+    "rf": -0.0008271015123402945,
+    "ridge": -0.00018764091683308405
   },
-  "bottom_up_return": 0.0007163523097801809,
+  "bottom_up_return": 0.00044449444280946735,
   "stock_predictions": [
     {
       "ticker": "0700.HK",
       "name": "\u9a30\u8a0a\u63a7\u80a1",
       "sector": "\u79d1\u6280",
-      "session": "intraday",
-      "last_close": 409.6000061035156,
-      "pred_close_return": 0.00018002669690473665,
-      "pred_high_return": 0.013994357436289321,
-      "pred_low_return": -0.015061646839381946,
-      "p_up": 0.4780288460324994,
+      "session": "pre_market",
+      "last_close": 398.79998779296875,
+      "pred_close_return": -0.002756001811177973,
+      "pred_high_return": 0.014265620698554795,
+      "pred_low_return": -0.01623298566175622,
+      "p_up": 0.3983987533915011,
       "signal_strength": {
-        "label": "\u5f31",
-        "margin_pct": 2.2
+        "label": "\u4e2d",
+        "margin_pct": 10.2
       },
       "hit_rate": "79.2%",
       "weight": 0.1372881355932203
@@ -69,15 +69,15 @@
       "ticker": "9988.HK",
       "name": "\u963f\u91cc\u5df4\u5df4",
       "sector": "\u79d1\u6280",
-      "session": "intraday",
-      "last_close": 100.5999984741211,
-      "pred_close_return": -0.0036946297508832593,
-      "pred_high_return": 0.012553982428506137,
-      "pred_low_return": -0.012611720116526169,
-      "p_up": 0.403278008811591,
+      "session": "pre_market",
+      "last_close": 93.80000305175781,
+      "pred_close_return": -0.004054633607040737,
+      "pred_high_return": 0.034105737387205945,
+      "pred_low_return": -0.01935846245733995,
+      "p_up": 0.6885893060765109,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 9.7
+        "label": "\u5f37",
+        "margin_pct": 18.9
       },
       "hit_rate": "81.1%",
       "weight": 0.10508474576271185
@@ -86,15 +86,15 @@
       "ticker": "0941.HK",
       "name": "\u4e2d\u570b\u79fb\u52d5",
       "sector": "\u96fb\u8a0a",
-      "session": "intraday",
-      "last_close": 80.8499984741211,
-      "pred_close_return": 0.002034014537315756,
-      "pred_high_return": 0.005876658416570721,
-      "pred_low_return": -0.0039634625663480146,
-      "p_up": 0.44482231668673544,
+      "session": "pre_market",
+      "last_close": 80.69999694824219,
+      "pred_close_return": 0.0029172986968610203,
+      "pred_high_return": 0.005794640633731275,
+      "pred_low_return": -0.003354342821003622,
+      "p_up": 0.4505431225041638,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 5.5
+        "label": "\u5f31",
+        "margin_pct": 4.9
       },
       "hit_rate": "61.3%",
       "weight": 0.0983050847457627
@@ -103,15 +103,15 @@
       "ticker": "1299.HK",
       "name": "\u53cb\u90a6\u4fdd\u96aa",
       "sector": "\u4fdd\u96aa",
-      "session": "intraday",
-      "last_close": 78.9000015258789,
-      "pred_close_return": 0.002956694546331821,
-      "pred_high_return": 0.00942908032096016,
-      "pred_low_return": -0.01618129624486058,
-      "p_up": 0.44558114468211324,
+      "session": "pre_market",
+      "last_close": 79.25,
+      "pred_close_return": -0.002434643582329532,
+      "pred_high_return": 0.007314288831722441,
+      "pred_low_return": -0.01364614644307687,
+      "p_up": 0.5328739825789804,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 5.4
+        "label": "\u5f31",
+        "margin_pct": 3.3
       },
       "hit_rate": "72.2%",
       "weight": 0.09322033898305083
@@ -120,15 +120,15 @@
       "ticker": "0388.HK",
       "name": "\u9999\u6e2f\u4ea4\u6613\u6240",
       "sector": "\u91d1\u878d",
-      "session": "intraday",
-      "last_close": 383.6000061035156,
-      "pred_close_return": -0.000244789400314735,
-      "pred_high_return": 0.007166074268035437,
-      "pred_low_return": -0.007271427004119965,
-      "p_up": 0.5253038471714869,
+      "session": "pre_market",
+      "last_close": 382.0,
+      "pred_close_return": -0.0005907637767651356,
+      "pred_high_return": 0.008098285923448082,
+      "pred_low_return": -0.006569442564998133,
+      "p_up": 0.4508928955275014,
       "signal_strength": {
         "label": "\u5f31",
-        "margin_pct": 2.5
+        "margin_pct": 4.9
       },
       "hit_rate": "74.1%",
       "weight": 0.08813559322033897
@@ -137,15 +137,15 @@
       "ticker": "3690.HK",
       "name": "\u7f8e\u5718",
       "sector": "\u79d1\u6280",
-      "session": "intraday",
-      "last_close": 72.8499984741211,
-      "pred_close_return": 0.012012457226848289,
-      "pred_high_return": 0.020028688168973727,
-      "pred_low_return": -0.015566335440055316,
-      "p_up": 0.4132153943847464,
+      "session": "pre_market",
+      "last_close": 72.0999984741211,
+      "pred_close_return": 0.015851285948900028,
+      "pred_high_return": 0.026361757289483936,
+      "pred_low_return": -0.017379484329805017,
+      "p_up": 0.547981163716881,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 8.7
+        "label": "\u5f31",
+        "margin_pct": 4.8
       },
       "hit_rate": "75.9%",
       "weight": 0.07627118644067796
@@ -154,15 +154,15 @@
       "ticker": "0005.HK",
       "name": "\u6ed9\u8c50\u63a7\u80a1",
       "sector": "\u91d1\u878d",
-      "session": "intraday",
-      "last_close": 141.60000610351562,
-      "pred_close_return": 0.000840030251455299,
-      "pred_high_return": 0.011846285464226163,
-      "pred_low_return": -0.009815628820534592,
-      "p_up": 0.6637304928193597,
+      "session": "pre_market",
+      "last_close": 140.6999969482422,
+      "pred_close_return": 0.003058599732158133,
+      "pred_high_return": 0.009594112284688597,
+      "pred_low_return": -0.00739792359322021,
+      "p_up": 0.4762759124954358,
       "signal_strength": {
-        "label": "\u5f37",
-        "margin_pct": 16.4
+        "label": "\u5f31",
+        "margin_pct": 2.4
       },
       "hit_rate": "75.5%",
       "weight": 0.07457627118644067
@@ -171,15 +171,15 @@
       "ticker": "1810.HK",
       "name": "\u5c0f\u7c73\u96c6\u5718",
       "sector": "\u79d1\u6280",
-      "session": "intraday",
-      "last_close": 30.100000381469727,
-      "pred_close_return": -0.006854277157770187,
-      "pred_high_return": 0.020437707360186536,
-      "pred_low_return": -0.0387663888396982,
-      "p_up": 0.42385602034534503,
+      "session": "pre_market",
+      "last_close": 29.979999542236328,
+      "pred_close_return": -0.00836831666497401,
+      "pred_high_return": 0.018808150033050586,
+      "pred_low_return": -0.026236531164462243,
+      "p_up": 0.41637825776888515,
       "signal_strength": {
         "label": "\u4e2d",
-        "margin_pct": 7.6
+        "margin_pct": 8.4
       },
       "hit_rate": "80.7%",
       "weight": 0.050847457627118633
@@ -188,15 +188,15 @@
       "ticker": "2318.HK",
       "name": "\u4e2d\u570b\u5e73\u5b89",
       "sector": "\u4fdd\u96aa",
-      "session": "intraday",
-      "last_close": 52.650001525878906,
-      "pred_close_return": 0.0004319512206661625,
-      "pred_high_return": 0.010677409061201619,
-      "pred_low_return": -0.009898869849302468,
-      "p_up": 0.4753917263239119,
+      "session": "pre_market",
+      "last_close": 52.29999923706055,
+      "pred_close_return": -0.0010961993756609552,
+      "pred_high_return": 0.01086924613811338,
+      "pred_low_return": -0.011072136372739532,
+      "p_up": 0.41412557526061605,
       "signal_strength": {
-        "label": "\u5f31",
-        "margin_pct": 2.5
+        "label": "\u4e2d",
+        "margin_pct": 8.6
       },
       "hit_rate": "76.4%",
       "weight": 0.04745762711864406
@@ -205,15 +205,15 @@
       "ticker": "0016.HK",
       "name": "\u65b0\u9d3b\u57fa\u5730\u7522",
       "sector": "\u5730\u7522",
-      "session": "intraday",
-      "last_close": 113.0999984741211,
-      "pred_close_return": -0.001989034980847502,
-      "pred_high_return": 0.007912090808141153,
-      "pred_low_return": -0.014639753861139526,
-      "p_up": 0.5286381767344294,
+      "session": "pre_market",
+      "last_close": 112.4000015258789,
+      "pred_close_return": -0.000735803159775647,
+      "pred_high_return": 0.009710715732251447,
+      "pred_low_return": -0.01170933089001695,
+      "p_up": 0.4534770643933774,
       "signal_strength": {
         "label": "\u5f31",
-        "margin_pct": 2.9
+        "margin_pct": 4.7
       },
       "hit_rate": "79.7%",
       "weight": 0.0423728813559322
@@ -222,15 +222,15 @@
       "ticker": "0027.HK",
       "name": "\u9280\u6cb3\u5a1b\u6a02",
       "sector": "\u535a\u5f69",
-      "session": "intraday",
-      "last_close": 34.619998931884766,
-      "pred_close_return": 0.004487239515342407,
-      "pred_high_return": 0.011770076899343661,
-      "pred_low_return": -0.01373117924141876,
-      "p_up": 0.49879062773213345,
+      "session": "pre_market",
+      "last_close": 34.47999954223633,
+      "pred_close_return": 0.0034537436724701594,
+      "pred_high_return": 0.014500816333272921,
+      "pred_low_return": -0.0066911575177813825,
+      "p_up": 0.5003198887026541,
       "signal_strength": {
         "label": "\u5f31",
-        "margin_pct": 0.1
+        "margin_pct": 0.0
       },
       "hit_rate": "68.4%",
       "weight": 0.033898305084745756
@@ -239,15 +239,15 @@
       "ticker": "0883.HK",
       "name": "\u4e2d\u570b\u6d77\u6d0b\u77f3\u6cb9",
       "sector": "\u80fd\u6e90",
-      "session": "intraday",
-      "last_close": 22.719999313354492,
-      "pred_close_return": -0.0007116213232931384,
-      "pred_high_return": 0.011873680787634929,
-      "pred_low_return": -0.011148674188234649,
-      "p_up": 0.5792310374047948,
+      "session": "pre_market",
+      "last_close": 22.84000015258789,
+      "pred_close_return": 0.0038409198894787198,
+      "pred_high_return": 0.01586423640898055,
+      "pred_low_return": -0.007385285438440916,
+      "p_up": 0.6765811729405515,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 7.9
+        "label": "\u5f37",
+        "margin_pct": 17.7
       },
       "hit_rate": "76.9%",
       "weight": 0.033898305084745756
@@ -256,15 +256,15 @@
       "ticker": "1398.HK",
       "name": "\u5de5\u5546\u9280\u884c",
       "sector": "\u91d1\u878d",
-      "session": "intraday",
-      "last_close": 7.885000228881836,
-      "pred_close_return": 0.003873173997401332,
-      "pred_high_return": 0.012761951336563868,
-      "pred_low_return": -0.014081712205180256,
-      "p_up": 0.581677177443162,
+      "session": "pre_market",
+      "last_close": 7.835000038146973,
+      "pred_close_return": -0.00275942719092669,
+      "pred_high_return": 0.010035856216011874,
+      "pred_low_return": -0.014034531350959306,
+      "p_up": 0.4770814967922929,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 8.2
+        "label": "\u5f31",
+        "margin_pct": 2.3
       },
       "hit_rate": "74.5%",
       "weight": 0.032203389830508466
@@ -273,15 +273,15 @@
       "ticker": "3988.HK",
       "name": "\u4e2d\u570b\u9280\u884c",
       "sector": "\u91d1\u878d",
-      "session": "intraday",
-      "last_close": 6.215000152587891,
-      "pred_close_return": 0.0007630466976795515,
-      "pred_high_return": 0.010315893046235066,
-      "pred_low_return": -0.009327403326103236,
-      "p_up": 0.6572690734234661,
+      "session": "pre_market",
+      "last_close": 6.239999771118164,
+      "pred_close_return": 0.0031373072529659067,
+      "pred_high_return": 0.010156745230326319,
+      "pred_low_return": -0.007260934868868823,
+      "p_up": 0.4819505371005314,
       "signal_strength": {
-        "label": "\u5f37",
-        "margin_pct": 15.7
+        "label": "\u5f31",
+        "margin_pct": 1.8
       },
       "hit_rate": "65.1%",
       "weight": 0.03050847457627118
@@ -290,15 +290,15 @@
       "ticker": "0002.HK",
       "name": "\u4e2d\u96fb\u63a7\u80a1",
       "sector": "\u516c\u7528",
-      "session": "intraday",
-      "last_close": 81.5,
-      "pred_close_return": -0.003567190087232886,
-      "pred_high_return": 0.004884226762777608,
-      "pred_low_return": -0.010413223640391257,
-      "p_up": 0.615700133795485,
+      "session": "pre_market",
+      "last_close": 80.8499984741211,
+      "pred_close_return": -0.0005859998039068837,
+      "pred_high_return": 0.004204143051585735,
+      "pred_low_return": -0.010288697714206091,
+      "p_up": 0.3604595337391891,
       "signal_strength": {
         "label": "\u4e2d",
-        "margin_pct": 11.6
+        "margin_pct": 14.0
       },
       "hit_rate": "64.2%",
       "weight": 0.028813559322033895
@@ -307,15 +307,15 @@
       "ticker": "0001.HK",
       "name": "\u9577\u548c",
       "sector": "\u7d9c\u5408\u4f01\u696d",
-      "session": "intraday",
-      "last_close": 72.0999984741211,
-      "pred_close_return": -0.004199179973991351,
-      "pred_high_return": 0.006548447452161412,
-      "pred_low_return": -0.013858883507198612,
-      "p_up": 0.4879491630742013,
+      "session": "pre_market",
+      "last_close": 69.3499984741211,
+      "pred_close_return": 0.002785947353113667,
+      "pred_high_return": 0.014917891268122133,
+      "pred_low_return": -0.011682708748402689,
+      "p_up": 0.7076390005521205,
       "signal_strength": {
-        "label": "\u5f31",
-        "margin_pct": 1.2
+        "label": "\u5f37",
+        "margin_pct": 20.8
       },
       "hit_rate": "71.7%",
       "weight": 0.027118644067796606
@@ -326,15 +326,15 @@
       "ticker": "1211.HK",
       "name": "\u6bd4\u4e9e\u8fea\u80a1\u4efd",
       "sector": "\u6c7d\u8eca",
-      "session": "intraday",
-      "last_close": 69.19999694824219,
-      "pred_close_return": -7.074961260925637e-05,
-      "pred_high_return": 0.01751994277206006,
-      "pred_low_return": -0.009507072016964754,
-      "p_up": 0.48252204283946043,
+      "session": "pre_market",
+      "last_close": 67.55000305175781,
+      "pred_close_return": -0.003693255712797988,
+      "pred_high_return": 0.01885008573660982,
+      "pred_low_return": -0.019490400070095684,
+      "p_up": 0.4878777444437109,
       "signal_strength": {
         "label": "\u5f31",
-        "margin_pct": 1.7
+        "margin_pct": 1.2
       },
       "hit_rate": "72.6%"
     },
@@ -342,15 +342,15 @@
       "ticker": "0968.HK",
       "name": "\u4fe1\u7fa9\u5149\u80fd",
       "sector": "\u65b0\u80fd\u6e90",
-      "session": "intraday",
-      "last_close": 2.049999952316284,
-      "pred_close_return": 0.006557205887779866,
-      "pred_high_return": 0.017436619738940642,
-      "pred_low_return": -0.022796527947916492,
-      "p_up": 0.5161195778833753,
+      "session": "pre_market",
+      "last_close": 1.9800000190734863,
+      "pred_close_return": 0.003836435905733499,
+      "pred_high_return": 0.013685928055394815,
+      "pred_low_return": -0.0177284164367907,
+      "p_up": 0.5118442494783126,
       "signal_strength": {
         "label": "\u5f31",
-        "margin_pct": 1.6
+        "margin_pct": 1.2
       },
       "hit_rate": "69.8%"
     }
