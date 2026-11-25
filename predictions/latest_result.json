@@ -1,37 +1,37 @@
 {
-  "date": "2026-11-24",
+  "date": "2026-11-25",
   "run_mode": "official",
   "session": "intraday",
-  "last_close": 22383.740234375,
-  "estimated_entry_price": 22472.010828495717,
+  "last_close": 22219.650390625,
+  "estimated_entry_price": 22214.755576178602,
   "gap_model_status": "FITTED",
-  "pred_close_return_blended": 0.0023455113553982674,
-  "pred_close_price": 22436.24155127101,
-  "pred_high_price": 22710.440167611607,
-  "pred_low_price": 22316.803742475066,
-  "pred_close_q10": -0.017161144124130764,
-  "pred_close_q90": 0.017777366437412866,
+  "pred_close_return_blended": -0.0008731274930211981,
+  "pred_close_price": 22200.249802983628,
+  "pred_high_price": 22399.312733281582,
+  "pred_low_price": 21876.376960258596,
+  "pred_close_q10": -0.020266261554506844,
+  "pred_close_q90": 0.018980515885988907,
   "regime": "BEAR",
-  "p_up": 0.6480301873849175,
+  "p_up": 0.5124066225831497,
   "signal_strength": {
-    "label": "\u4e2d",
-    "margin_pct": 14.8
+    "label": "\u5f31",
+    "margin_pct": 1.2
   },
-  "confidence": 0.7518837054540171,
-  "expected_move_pct": 0.0038109265827002766,
+  "confidence": 0.7892831448756376,
+  "expected_move_pct": 0.0030705618290682215,
   "worth_trading": true,
   "threshold_used": {
     "MIN_EXPECTED_MOVE_PCT": 0.0002340651322682498,
     "MIN_CONFIDENCE": 0.5712758578682838,
     "source": "calibrated"
   },
-  "raw_direction": "LONG",
-  "calibrated_signal": "LONG",
-  "risk_reward_ratio": 1.54,
-  "position_size_pct": 0.1577,
-  "raw_kelly_fraction": 0.4195,
-  "fractional_kelly": 0.2097,
-  "confidence_scaled_kelly": 0.1577,
+  "raw_direction": "SHORT",
+  "calibrated_signal": "SHORT",
+  "risk_reward_ratio": 1.83,
+  "position_size_pct": 0.0819,
+  "raw_kelly_fraction": 0.2076,
+  "fractional_kelly": 0.1038,
+  "confidence_scaled_kelly": 0.0819,
   "regime_dampener": 1.0,
   "position_capped": false,
   "position_reason": "computed",
@@ -42,25 +42,25 @@
   },
   "ensemble_weight_source": "static_fallback",
   "sub_model_preds": {
-    "lgb": 0.003810389171277484,
-    "rf": 0.005950980000441846,
-    "ridge": 0.0015973058749860112
+    "lgb": -0.004857700178936517,
+    "rf": -0.004212423469971079,
+    "ridge": -5.0208419673667716e-05
   },
-  "bottom_up_return": 0.00014738851444525344,
+  "bottom_up_return": 0.0024230240110493365,
   "stock_predictions": [
     {
       "ticker": "0700.HK",
       "name": "\u9a30\u8a0a\u63a7\u80a1",
       "sector": "\u79d1\u6280",
       "session": "intraday",
-      "last_close": 344.0,
-      "pred_close_return": -0.011353830326009185,
-      "pred_high_return": 0.027127689865171663,
-      "pred_low_return": -0.010826815341617934,
-      "p_up": 0.7476169280924717,
+      "last_close": 341.6000061035156,
+      "pred_close_return": -0.0046018620616282545,
+      "pred_high_return": 0.021460743677524968,
+      "pred_low_return": -0.017661260923365164,
+      "p_up": 0.6902198685867958,
       "signal_strength": {
         "label": "\u5f37",
-        "margin_pct": 24.8
+        "margin_pct": 19.0
       },
       "hit_rate": "78.2%",
       "weight": 0.1372881355932203
@@ -70,14 +70,14 @@
       "name": "\u963f\u91cc\u5df4\u5df4",
       "sector": "\u79d1\u6280",
       "session": "intraday",
-      "last_close": 83.05000305175781,
-      "pred_close_return": 0.008796145456473487,
-      "pred_high_return": 0.03704644299445738,
-      "pred_low_return": -0.014976575572155282,
-      "p_up": 0.6374517744789594,
+      "last_close": 82.19999694824219,
+      "pred_close_return": 0.01057042397342881,
+      "pred_high_return": 0.034322863321165104,
+      "pred_low_return": -0.026189260521939085,
+      "p_up": 0.41359769162559895,
       "signal_strength": {
         "label": "\u4e2d",
-        "margin_pct": 13.7
+        "margin_pct": 8.6
       },
       "hit_rate": "80.5%",
       "weight": 0.10508474576271185
@@ -87,14 +87,14 @@
       "name": "\u4e2d\u570b\u79fb\u52d5",
       "sector": "\u96fb\u8a0a",
       "session": "intraday",
-      "last_close": 78.94999694824219,
-      "pred_close_return": -0.001012513707596568,
-      "pred_high_return": 0.0061137881221195265,
-      "pred_low_return": -0.006733384460798369,
-      "p_up": 0.42631542400378686,
+      "last_close": 78.75,
+      "pred_close_return": -0.0015626796980781484,
+      "pred_high_return": 0.005669810073851368,
+      "pred_low_return": -0.0057772170574187315,
+      "p_up": 0.3352507947168619,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 7.4
+        "label": "\u5f37",
+        "margin_pct": 16.5
       },
       "hit_rate": "60.9%",
       "weight": 0.0983050847457627
@@ -105,13 +105,13 @@
       "sector": "\u4fdd\u96aa",
       "session": "intraday",
       "last_close": 74.0,
-      "pred_close_return": 0.0028987450127093903,
-      "pred_high_return": 0.014507068422050885,
-      "pred_low_return": -0.007262373924487228,
-      "p_up": 0.4810161287033608,
+      "pred_close_return": 0.0033055744283085435,
+      "pred_high_return": 0.01009318880074319,
+      "pred_low_return": -0.008137665129148397,
+      "p_up": 0.47640895891408225,
       "signal_strength": {
         "label": "\u5f31",
-        "margin_pct": 1.9
+        "margin_pct": 2.4
       },
       "hit_rate": "72.7%",
       "weight": 0.09322033898305083
@@ -121,14 +121,14 @@
       "name": "\u9999\u6e2f\u4ea4\u6613\u6240",
       "sector": "\u91d1\u878d",
       "session": "intraday",
-      "last_close": 351.3999938964844,
-      "pred_close_return": -0.005962541616689804,
-      "pred_high_return": 0.00550945003074282,
-      "pred_low_return": -0.01514645076231199,
-      "p_up": 0.36886252733621633,
+      "last_close": 352.6000061035156,
+      "pred_close_return": -0.00018584011599576586,
+      "pred_high_return": 0.008640822095286561,
+      "pred_low_return": -0.015427937096520856,
+      "p_up": 0.5040337524386614,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 13.1
+        "label": "\u5f31",
+        "margin_pct": 0.4
       },
       "hit_rate": "74.1%",
       "weight": 0.08813559322033897
@@ -138,14 +138,14 @@
       "name": "\u7f8e\u5718",
       "sector": "\u79d1\u6280",
       "session": "intraday",
-      "last_close": 66.4000015258789,
-      "pred_close_return": 0.013436552487118697,
-      "pred_high_return": 0.028938564148736003,
-      "pred_low_return": -0.02084526327126062,
-      "p_up": 0.7575718327119206,
+      "last_close": 64.19999694824219,
+      "pred_close_return": 0.018289997931342908,
+      "pred_high_return": 0.03869209894578522,
+      "pred_low_return": -0.01045438854068139,
+      "p_up": 0.6323631919129183,
       "signal_strength": {
-        "label": "\u5f37",
-        "margin_pct": 25.8
+        "label": "\u4e2d",
+        "margin_pct": 13.2
       },
       "hit_rate": "73.6%",
       "weight": 0.07627118644067796
@@ -155,14 +155,14 @@
       "name": "\u6ed9\u8c50\u63a7\u80a1",
       "sector": "\u91d1\u878d",
       "session": "intraday",
-      "last_close": 129.60000610351562,
-      "pred_close_return": 0.005300441212453818,
-      "pred_high_return": 0.015196726862745015,
-      "pred_low_return": -0.015741584633903436,
-      "p_up": 0.8128606387382759,
+      "last_close": 130.60000610351562,
+      "pred_close_return": 0.0027324530352855606,
+      "pred_high_return": 0.010202888588362338,
+      "pred_low_return": -0.009913139513984589,
+      "p_up": 0.847854840580723,
       "signal_strength": {
         "label": "\u5f37",
-        "margin_pct": 31.3
+        "margin_pct": 34.8
       },
       "hit_rate": "75.0%",
       "weight": 0.07457627118644067
@@ -172,14 +172,14 @@
       "name": "\u5c0f\u7c73\u96c6\u5718",
       "sector": "\u79d1\u6280",
       "session": "intraday",
-      "last_close": 27.520000457763672,
-      "pred_close_return": -0.005617355084314606,
-      "pred_high_return": 0.01952183342294397,
-      "pred_low_return": -0.02168179330258423,
-      "p_up": 0.5095955073439206,
+      "last_close": 26.5,
+      "pred_close_return": -0.0019317133711430838,
+      "pred_high_return": 0.022905589689967205,
+      "pred_low_return": -0.017849863784047924,
+      "p_up": 0.612536769242337,
       "signal_strength": {
-        "label": "\u5f31",
-        "margin_pct": 1.0
+        "label": "\u4e2d",
+        "margin_pct": 11.3
       },
       "hit_rate": "80.9%",
       "weight": 0.050847457627118633
@@ -189,14 +189,14 @@
       "name": "\u4e2d\u570b\u5e73\u5b89",
       "sector": "\u4fdd\u96aa",
       "session": "intraday",
-      "last_close": 49.70000076293945,
-      "pred_close_return": -0.0012572340791385786,
-      "pred_high_return": 0.010583424609572551,
-      "pred_low_return": -0.01093396411774759,
-      "p_up": 0.3948265429920154,
+      "last_close": 50.20000076293945,
+      "pred_close_return": 0.0044459629394874856,
+      "pred_high_return": 0.01424606528221381,
+      "pred_low_return": -0.008102385546391606,
+      "p_up": 0.5501473265572492,
       "signal_strength": {
         "label": "\u4e2d",
-        "margin_pct": 10.5
+        "margin_pct": 5.0
       },
       "hit_rate": "74.5%",
       "weight": 0.04745762711864406
@@ -206,14 +206,14 @@
       "name": "\u65b0\u9d3b\u57fa\u5730\u7522",
       "sector": "\u5730\u7522",
       "session": "intraday",
-      "last_close": 108.80000305175781,
-      "pred_close_return": 0.0027430680112848324,
-      "pred_high_return": 0.013924915447073912,
-      "pred_low_return": -0.011078741689022162,
-      "p_up": 0.5411117030192212,
+      "last_close": 108.5,
+      "pred_close_return": 0.005568876816310484,
+      "pred_high_return": 0.012815459197421124,
+      "pred_low_return": -0.010751955267245867,
+      "p_up": 0.4328540912708462,
       "signal_strength": {
-        "label": "\u5f31",
-        "margin_pct": 4.1
+        "label": "\u4e2d",
+        "margin_pct": 6.7
       },
       "hit_rate": "78.6%",
       "weight": 0.0423728813559322
@@ -223,14 +223,14 @@
       "name": "\u9280\u6cb3\u5a1b\u6a02",
       "sector": "\u535a\u5f69",
       "session": "intraday",
-      "last_close": 32.880001068115234,
-      "pred_close_return": 0.00579146180355046,
-      "pred_high_return": 0.016487132973895213,
-      "pred_low_return": -0.009889189465603819,
-      "p_up": 0.5185559646523497,
+      "last_close": 32.29999923706055,
+      "pred_close_return": -0.0048909026105439695,
+      "pred_high_return": 0.011156188656436361,
+      "pred_low_return": -0.01415906037000217,
+      "p_up": 0.44268381809915536,
       "signal_strength": {
-        "label": "\u5f31",
-        "margin_pct": 1.9
+        "label": "\u4e2d",
+        "margin_pct": 5.7
       },
       "hit_rate": "66.8%",
       "weight": 0.033898305084745756
@@ -240,14 +240,14 @@
       "name": "\u4e2d\u570b\u6d77\u6d0b\u77f3\u6cb9",
       "sector": "\u80fd\u6e90",
       "session": "intraday",
-      "last_close": 21.280000686645508,
-      "pred_close_return": -0.005966636984025974,
-      "pred_high_return": 0.012021902764609063,
-      "pred_low_return": -0.01968651858468511,
-      "p_up": 0.5831248311382913,
+      "last_close": 20.860000610351562,
+      "pred_close_return": -0.005833015734161647,
+      "pred_high_return": 0.014952533601266535,
+      "pred_low_return": -0.016525107320953997,
+      "p_up": 0.5111186609813138,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 8.3
+        "label": "\u5f31",
+        "margin_pct": 1.1
       },
       "hit_rate": "76.4%",
       "weight": 0.033898305084745756
@@ -257,14 +257,14 @@
       "name": "\u5de5\u5546\u9280\u884c",
       "sector": "\u91d1\u878d",
       "session": "intraday",
-      "last_close": 7.769999980926514,
-      "pred_close_return": 0.007328210041536658,
-      "pred_high_return": 0.014851476230254198,
-      "pred_low_return": -0.007053809991929138,
-      "p_up": 0.5747257894943352,
+      "last_close": 7.684999942779541,
+      "pred_close_return": 0.004688720926408896,
+      "pred_high_return": 0.013305890319931004,
+      "pred_low_return": -0.006417715949985074,
+      "p_up": 0.4888759503400996,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 7.5
+        "label": "\u5f31",
+        "margin_pct": 1.1
       },
       "hit_rate": "73.6%",
       "weight": 0.032203389830508466
@@ -274,14 +274,14 @@
       "name": "\u4e2d\u570b\u9280\u884c",
       "sector": "\u91d1\u878d",
       "session": "intraday",
-      "last_close": 6.125,
-      "pred_close_return": -0.003932172683041011,
-      "pred_high_return": 0.009298446084308493,
-      "pred_low_return": -0.018186301941795824,
-      "p_up": 0.5722523419458281,
+      "last_close": 6.170000076293945,
+      "pred_close_return": -0.0014282968852357511,
+      "pred_high_return": 0.008797345115720482,
+      "pred_low_return": -0.016439564878695828,
+      "p_up": 0.46891995411836873,
       "signal_strength": {
-        "label": "\u4e2d",
-        "margin_pct": 7.2
+        "label": "\u5f31",
+        "margin_pct": 3.1
       },
       "hit_rate": "64.1%",
       "weight": 0.03050847457627118
@@ -291,14 +291,14 @@
       "name": "\u4e2d\u96fb\u63a7\u80a1",
       "sector": "\u516c\u7528",
       "session": "intraday",
-      "last_close": 80.55000305175781,
-      "pred_close_return": 0.0004491886433115521,
-      "pred_high_return": 0.007722977623708474,
-      "pred_low_return": -0.00966706727476404,
-      "p_up": 0.46151869559076664,
+      "last_close": 79.8499984741211,
+      "pred_close_return": 0.0022625718238803902,
+      "pred_high_return": 0.008381136120682501,
+      "pred_low_return": -0.007040181887588024,
+      "p_up": 0.49769024993450295,
       "signal_strength": {
         "label": "\u5f31",
-        "margin_pct": 3.8
+        "margin_pct": 0.2
       },
       "hit_rate": "63.6%",
       "weight": 0.028813559322033895
@@ -308,14 +308,14 @@
       "name": "\u9577\u548c",
       "sector": "\u7d9c\u5408\u4f01\u696d",
       "session": "intraday",
-      "last_close": 64.80000305175781,
-      "pred_close_return": -0.0065438693493009145,
-      "pred_high_return": 0.006602328223337929,
-      "pred_low_return": -0.013470564345061074,
-      "p_up": 0.535895315543271,
+      "last_close": 64.19999694824219,
+      "pred_close_return": 0.001816512018766233,
+      "pred_high_return": 0.00683378958906664,
+      "pred_low_return": -0.014832724256636814,
+      "p_up": 0.4815247567657242,
       "signal_strength": {
         "label": "\u5f31",
-        "margin_pct": 3.6
+        "margin_pct": 1.8
       },
       "hit_rate": "70.9%",
       "weight": 0.027118644067796606
@@ -327,14 +327,14 @@
       "name": "\u6bd4\u4e9e\u8fea\u80a1\u4efd",
       "sector": "\u6c7d\u8eca",
       "session": "intraday",
-      "last_close": 61.20000076293945,
-      "pred_close_return": -0.0004551157598767825,
-      "pred_high_return": 0.0206846618960415,
-      "pred_low_return": -0.025146588234789102,
-      "p_up": 0.5227400737705471,
+      "last_close": 60.29999923706055,
+      "pred_close_return": 0.01073791704832304,
+      "pred_high_return": 0.02737831456103861,
+      "pred_low_return": -0.013583799101651892,
+      "p_up": 0.5790427588242205,
       "signal_strength": {
-        "label": "\u5f31",
-        "margin_pct": 2.3
+        "label": "\u4e2d",
+        "margin_pct": 7.9
       },
       "hit_rate": "70.9%"
     },
@@ -343,14 +343,14 @@
       "name": "\u4fe1\u7fa9\u5149\u80fd",
       "sector": "\u65b0\u80fd\u6e90",
       "session": "intraday",
-      "last_close": 1.7400000095367432,
-      "pred_close_return": 0.012839685169368564,
-      "pred_high_return": 0.02574760590951642,
-      "pred_low_return": -0.012211308318629006,
-      "p_up": 0.6322968786576967,
+      "last_close": 1.6649999618530273,
+      "pred_close_return": 0.0056404476109216655,
+      "pred_high_return": 0.02594976628815932,
+      "pred_low_return": -0.017109608751898587,
+      "p_up": 0.6247292604707323,
       "signal_strength": {
         "label": "\u4e2d",
-        "margin_pct": 13.2
+        "margin_pct": 12.5
       },
       "hit_rate": "67.7%"
     }
